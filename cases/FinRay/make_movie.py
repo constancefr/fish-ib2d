@@ -2,9 +2,19 @@
 VisIt batch movie script for the FinRay IB2d example.
 
 Usage (from a normal shell, not VisIt's GUI):
-    visit -cli -nowin -s make_movie.py -- <case_dir> <output.mp4> [fps]
+    Single case:
+        visit -cli -nowin -s make_movie.py -- <case_dir> <output.mp4> [fps]
+    Every case under a results/ directory (sweeps all subfolders that
+    contain a viz_IB2d/, e.g. everything run_case.py has produced so far --
+    skips any that fail instead of aborting the whole sweep):
+        visit -cli -nowin -s make_movie.py -- --all [results_dir] [fps]
+        (results_dir defaults to "results"; each case's movie is saved as
+        <case_dir>/<case_name>.mp4, next to that case's own viz_IB2d/)
+
 EXAMPLE FOR BASE CASE `baseline`:
     /Applications/VisIt.app/Contents/Resources/bin/visit -quiet -cli -nowin -s make_movie.py -- results/baseline baseline_sim.mp4
+EXAMPLE FOR EVERY CASE UNDER results/:
+    /Applications/VisIt.app/Contents/Resources/bin/visit -quiet -cli -nowin -s make_movie.py -- --all
 
 <case_dir> should contain a viz_IB2d/ folder, as produced by run_case.py
 or a plain `python main2d.py` run. Renders one PNG per saved timestep,
@@ -18,18 +28,9 @@ import sys
 
 # args after the "--" VisIt passes through to sys.argv
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
-case_dir = os.path.abspath(argv[0])
-movie_out = os.path.abspath(argv[1])
-fps = int(argv[2]) if len(argv) > 2 else 20
-
-viz_dir = os.path.join(case_dir, "viz_IB2d")
-frame_dir = os.path.join(case_dir, "_frames")
-print(f"CASE_DIR: {case_dir}")
-print(f"VIZ_DIR: {viz_dir}\nFRAME_DIR: {frame_dir}\nMOVIE_OUT: {movie_out}\nFPS: {fps}")
-os.makedirs(frame_dir, exist_ok=True)
 
 
-def db(pattern):
+def db(viz_dir, pattern):
     """
     Build the 'family' database string VisIt uses to treat a numbered
     vtk sequence (lagsPts.0000.vtk, lagsPts.0001.vtk, ...) as one
@@ -45,11 +46,11 @@ def db(pattern):
     return visit_file
 
 
-def build_plots():
+def build_plots(viz_dir):
     DeleteAllPlots()
 
     # --- Raw Lagrangian points as small dots on top of the mesh
-    OpenDatabase(db("lagsPts.*.vtk"))
+    OpenDatabase(db(viz_dir, "lagsPts.*.vtk"))
     AddPlot("Mesh", "mesh")
     
     m1 = MeshAttributes()
@@ -74,7 +75,7 @@ def build_plots():
     SetPlotOptions(m1)
 
     # --- Structure: connected Lagrangian mesh (springs/beams/target pts)
-    OpenDatabase(db("lagPtsConnect.*.vtk"))
+    OpenDatabase(db(viz_dir, "lagPtsConnect.*.vtk"))
     AddPlot("Mesh", "mesh")
     SetActivePlots(1) # just in case, since we now have two mesh plots open
 
@@ -99,7 +100,7 @@ def build_plots():
 
 
     # --- Velocity magnitude colormap
-    OpenDatabase(db("uMag.*.vtk"))
+    OpenDatabase(db(viz_dir, "uMag.*.vtk"))
     AddPlot("Pseudocolor", "uMag")
 
     p = PseudocolorAttributes()
@@ -162,7 +163,7 @@ def build_plots():
     SetPlotOptions(p)
 
     # --- Velocity vectors
-    OpenDatabase(db("u.*.vtk"))
+    OpenDatabase(db(viz_dir, "u.*.vtk"))
     AddPlot("Vector", "u")
 
     v = VectorAttributes()
@@ -323,7 +324,7 @@ def build_plots():
     SetAnnotationAttributes(annot)
 
 
-def save_frames():
+def save_frames(frame_dir):
     swatts = SaveWindowAttributes()
     swatts.family = 0
     swatts.format = swatts.PNG
@@ -340,7 +341,7 @@ def save_frames():
     return n_states
 
 
-def encode(n_states):
+def encode(frame_dir, movie_out, fps, n_states):
     # ffmpeg gives more predictable control than visit_utils' own encoder
     pattern = os.path.join(frame_dir, "frame_%04d.png")
     subprocess.run([
@@ -351,7 +352,71 @@ def encode(n_states):
     print(f"Wrote {movie_out} ({n_states} frames @ {fps} fps)")
 
 
-build_plots()
-_n_states = save_frames()
-encode(_n_states)
+def process_case(case_dir, movie_out, fps):
+    '''
+    Renders and encodes the movie for one case. Safe to call repeatedly in
+    the same VisIt session (as --all sweep mode does): explicitly closes
+    every database it opened afterward, so state doesn't accumulate across
+    many cases in one long-lived session.
+    '''
+    case_dir = os.path.abspath(case_dir)
+    movie_out = os.path.abspath(movie_out)
+    viz_dir = os.path.join(case_dir, "viz_IB2d")
+    frame_dir = os.path.join(case_dir, "_frames")
+    if not os.path.isdir(viz_dir):
+        raise FileNotFoundError(f"No viz_IB2d/ in {case_dir}")
+
+    print(f"CASE_DIR: {case_dir}")
+    print(f"VIZ_DIR: {viz_dir}\nFRAME_DIR: {frame_dir}\nMOVIE_OUT: {movie_out}\nFPS: {fps}")
+    os.makedirs(frame_dir, exist_ok=True)
+
+    build_plots(viz_dir)
+    n_states = save_frames(frame_dir)
+    encode(frame_dir, movie_out, fps, n_states)
+
+    DeleteAllPlots()
+    for pattern in ("lagsPts.*.vtk", "lagPtsConnect.*.vtk", "uMag.*.vtk", "u.*.vtk"):
+        visit_file = os.path.join(viz_dir, f"_{pattern.replace('*', 'series')}.visit")
+        if os.path.exists(visit_file):
+            CloseDatabase(visit_file)
+
+
+def find_all_cases(results_dir):
+    '''Every immediate subfolder of results_dir that contains a viz_IB2d/.'''
+    if not os.path.isdir(results_dir):
+        raise FileNotFoundError(f"No such results directory: {results_dir}")
+    cases = []
+    for entry in sorted(os.listdir(results_dir)):
+        case_dir = os.path.join(results_dir, entry)
+        if os.path.isdir(os.path.join(case_dir, "viz_IB2d")):
+            cases.append(case_dir)
+    return cases
+
+
+if len(argv) >= 1 and argv[0] == "--all":
+    results_dir = argv[1] if len(argv) > 1 else "results"
+    fps = int(argv[2]) if len(argv) > 2 else 20
+    cases = find_all_cases(results_dir)
+    print(f"Found {len(cases)} case(s) with viz_IB2d/ under {results_dir}")
+
+    failures = []
+    for case_dir in cases:
+        case_name = os.path.basename(os.path.normpath(case_dir))
+        movie_out = os.path.join(case_dir, f"{case_name}.mp4")
+        print(f"\n=== {case_name} ===")
+        try:
+            process_case(case_dir, movie_out, fps)
+        except Exception as e:
+            print(f"!!! FAILED: {case_name}: {e}")
+            failures.append(case_name)
+
+    print(f"\nDone: {len(cases) - len(failures)}/{len(cases)} succeeded.")
+    if failures:
+        print("Failed cases:", ", ".join(failures))
+else:
+    case_dir = argv[0]
+    movie_out = argv[1]
+    fps = int(argv[2]) if len(argv) > 2 else 20
+    process_case(case_dir, movie_out, fps)
+
 sys.exit()

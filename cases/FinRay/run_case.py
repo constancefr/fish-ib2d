@@ -26,7 +26,6 @@ running `python main2d.py` by hand for each case.
 Run this script from inside the wanted Example folder, e.g. FinRay/
 '''
 
-import itertools
 import json
 import os
 import re
@@ -39,47 +38,81 @@ EXAMPLE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EXAMPLE_DIR / "results"
 
 
-# --- Define cases here
+# --- Base case: loaded from case_params.json on disk ---
 # Every key under "geom"/"actuation" becomes available to FinRay_Geom.py /
 #   update_Target_Point_Positions.py via case_params.json.
 # Keys under "input2d" are patched directly into the input2d text file.
-BASE_CASE = {
-    "case_name": "baseline",
-    "input2d": {
-        "mu": 0.001,
-        "rho": 1.0,
-        "Tfinal": 5.0,
-        "dt": 1.0e-3,
-        "Nx": 32, # keep even
-        "Ny": 32, # keep even
-        "Lx": 1.0,
-        "Ly": 1.0,
-        "supp": 4, # keep even
-    },
-    "geom": {
-        "E_material": 0.74e6,
-        "wall_thickness": 0.00396,
-        "extrude_depth": 0.05,
-    },
-    "actuation": {
-        "FREQUENCY": 1.0,
-        "AMPLITUDE": 0.01,
-        "TARGET_STIFFNESS_SCALE": 0.2,
-        "STIFFNESS_RAMP_TIME": 0.2,
-    },
-}
+#
+# BASE_CASE used to be a hardcoded dict here, separate from case_params.json
+# -- which meant hand-editing case_params.json (e.g. to try a value, or
+# because that's what a previous run_case() call last wrote) had no effect
+# on the next sweep: it would silently start over from whatever was baked
+# into this file instead. Loading it from case_params.json means editing
+# that file directly IS how you change the sweep's starting point; a
+# `git diff case_params.json` also then shows exactly what changed.
+#
+# NOTE (see NOTES.md): ribbon_fill_stiffness_scale=1.0 (the fill-stiffness
+# formula's literal, uncalibrated value) is known to go NaN by t~3.3-3.6s at
+# ribbon_fill_density_multiplier=1.0, dt=1e-3, E_material=0.74e6; 0.1 stayed
+# clean through a full Tfinal=5.0 run at those settings. Re-check (rerun to
+# Tfinal and grep the last viz_IB2d/lagPtsConnect.*.vtk frame for "nan", or
+# just watch for run_case()'s own divergence warning below) whenever
+# case_params.json's E_material, dt, or ribbon_fill_density_multiplier
+# change materially from those values.
+def _load_base_case():
+    with open(EXAMPLE_DIR / "case_params.json") as f:
+        return json.load(f)
+
+
+BASE_CASE = _load_base_case()
 
 
 def make_sweep():
     '''
-    Example sweep over AMPLITUDE x E_material, everything else held fixed.
+    2D sweep over ribbon_fill_density_multiplier x ribbon_fill_stiffness_scale,
+    everything else held fixed at BASE_CASE. Each case is named
+    "mult<M>_scale<S>" and lands in results/mult<M>_scale<S>/ (see run_case()),
+    so results from different (multiplier, scale) combinations never collide
+    or overwrite each other.
+
+    NOTE (see NOTES.md): scale=1.0 (the fill-stiffness formula's literal,
+    uncalibrated value) is known to go NaN by t~3.3-3.6s at
+    ribbon_fill_density_multiplier=1.0 -- higher multipliers add more,
+    similarly-stiff springs and are expected to be *more* prone to this, not
+    less. run_case() below flags (but does not skip) any case whose final
+    output frame contains NaN, so a blown-up case is obvious without having
+    to manually inspect each results/ folder.
     '''
+    # multipliers = [0.0, 1.0, 4.0, 8.0]
+    # scales = [0.05, 0.1, 0.3, 1.0]
+    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0]
+    scales = [1.0]
+
+    combos = []
+    for mult in multipliers:
+        if mult == 0.0:
+            # ribbon_fill_stiffness_scale is meaningless with no fill points
+            # (no 'fill' springs get created at all -- see
+            # build_Tail_Ribbon_Connections) -- sweeping scale here would
+            # just rerun the identical no-fill baseline 4x.
+            combos.append((mult, scales[0]))
+        else:
+            combos.extend((mult, scale) for scale in scales)
+
     cases = []
-    for amp, E in itertools.product([0.005, 0.01, 0.02], [0.5e6, 0.74e6, 1.0e6]):
-        case = json.loads(json.dumps(BASE_CASE))  # deep copy
-        case["case_name"] = f"amp{amp:.3f}_E{E:.2e}"
-        case["actuation"]["AMPLITUDE"] = amp
-        case["geom"]["E_material"] = E
+    for mult, scale in combos:
+        case = json.loads(json.dumps(BASE_CASE))  # deep copy of a known-clean base,
+        # NOT the on-disk case_params.json -- reading that back in would also
+        # pick up whatever "case_name"/one-off keys the *previous* case run
+        # happened to leave behind, silently carrying them into this one.
+        case["case_name"] = f"mult{mult:.2f}_scale{scale:.2f}"
+        # NOTE: both must be under "geom" -- FinRay_Geom.py only reads
+        # case_params.json["geom"][...]. A top-level key here is silently
+        # ignored (this bit us once already: every case in a sweep would
+        # quietly reuse whatever value was already baked into
+        # case_params.json's "geom" section instead of the intended one).
+        case["geom"]["ribbon_fill_density_multiplier"] = mult
+        case["geom"]["ribbon_fill_stiffness_scale"] = scale
         cases.append(case)
     return cases
 
@@ -137,13 +170,33 @@ def run_case(case: dict):
     shutil.copy(params_path, case_dir / "case_params.json")
     shutil.copy(EXAMPLE_DIR / "input2d", case_dir / "input2d")
 
-    print(f"=== Done: results in {case_dir} ===")
+    if _final_frame_has_nan(case_dir):
+        print(f"=== WARNING: {case['case_name']} diverged (NaN in its final "
+              f"output frame) -- results in {case_dir} are not usable ===")
+    else:
+        print(f"=== Done: results in {case_dir} ===")
     return case_dir
 
 
+def _final_frame_has_nan(case_dir):
+    '''
+    Cheap divergence check: does the *last* lagPtsConnect.*.vtk frame
+    contain "nan"? A spring-force divide-by-zero (two points colliding)
+    poisons position/velocity data from that point on but does not raise an
+    exception or a nonzero exit code, so a diverged run otherwise looks
+    identical to a healthy one until you open the output by hand -- see
+    NOTES.md for how this was first found (ribbon_fill_stiffness_scale=1.0
+    going NaN partway through a run).
+    '''
+    frames = sorted((case_dir / "viz_IB2d").glob("lagPtsConnect.*.vtk"))
+    if not frames:
+        return False
+    return "nan" in frames[-1].read_text().lower()
+
+
 def main():
-    # for case in make_sweep():
-    for case in [BASE_CASE]:    # for initial testing
+    for case in make_sweep():
+    # for case in [BASE_CASE]:    # for initial testing
         case_dir = run_case(case)
 
         # Optional: chain straight into VisIt for a movie per case.

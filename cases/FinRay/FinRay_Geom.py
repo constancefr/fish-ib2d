@@ -15,7 +15,13 @@ reference.
 
 import numpy as np
 import matplotlib.pyplot as plt
-import json, os
+from matplotlib.path import Path as _MplPath
+import json, os, sys
+
+_EXAMPLES_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _EXAMPLES_DIR not in sys.path:
+    sys.path.insert(0, _EXAMPLES_DIR)
+import _mesh_utils as mu
 
 _case_params = {}
 if os.path.exists('case_params.json'):
@@ -42,30 +48,64 @@ def FinRay_Geom():
     wall_thickness = _geom.get('wall_thickness', 0.00396)   # m (3.96mm in real build)
     extrude_depth = _geom.get('extrude_depth', 0.05)        # m
 
+    # Ribbon interior-fill params (Halton-sampled points inside each
+    # ribbon's actual 2D area, meshed via Delaunay triangulation). See
+    # fill_polygon_with_halton()/triangulate_with_holes() in _mesh_utils.py.
+    #   ribbon_fill_spacing: target point spacing; None -> falls back to ds.
+    #   ribbon_fill_density_multiplier: scales the density-derived point
+    #     count (0 = no fill, exactly today's sparse-truss geometry; 1 =
+    #     "same density as ds"; push higher, e.g. 8-32, to densify the mesh).
+    #   ribbon_fill_stiffness_scale: scales the interior 'fill' spring
+    #     stiffness formula (see build_Tail_Ribbon_Connections) -- flagged
+    #     as an approximation to calibrate empirically, see NOTES.md.
+    fill_spacing = _geom.get('ribbon_fill_spacing', None)
+    fill_density_multiplier = _geom.get('ribbon_fill_density_multiplier', 1.0)
+    fill_stiffness_scale = _geom.get('ribbon_fill_stiffness_scale', 1.0)
+
     # Construct geometry: each edge/ray is now a 2-rail ribbon of width
     # wall_thickness (instead of a single 1-point-thick line). Also returns
     # which rail indices belong to the outline vs. each ray, needed to wire
-    # up connections correctly below.
-    xLag, yLag, outlineRailIdx, rayRailIdxList, baseCornerIdx = \
-        _Build_Tail_Geometry_Ribbon(ds, wall_thickness)
+    # up connections correctly below, and ribbonPolys (each ribbon's
+    # boundary/interior points) needed for the interior mesh fill.
+    xLag, yLag, outlineRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys = \
+        _Build_Tail_Geometry_Ribbon(ds, wall_thickness,
+                                     fill_spacing=fill_spacing,
+                                     fill_density_multiplier=fill_density_multiplier)
 
     # Build connections: rail springs ('outline'/'ray'), cross-thickness
-    # 'rung' + 'diag' springs that give each ribbon its shear stiffness, and
-    # 'attach' springs tying each ray's rail-ends to the outline
-    connections = build_Tail_Ribbon_Connections(xLag, yLag, outlineRailIdx, rayRailIdxList)
+    # 'rung' + 'diag' springs that give each ribbon its shear stiffness,
+    # 'attach' springs tying each ray's rail-ends to the outline, and 'fill'
+    # springs from Delaunay-triangulating each ribbon's interior Halton
+    # points against its own boundary.
+    connections, fill_edge_k = build_Tail_Ribbon_Connections(
+        xLag, yLag, outlineRailIdx, rayRailIdxList, ribbonPolys,
+        E_material=E_material, extrude_depth=extrude_depth,
+        fill_stiffness_scale=fill_stiffness_scale)
 
     # Plot geometry to test
-    plot_colors = {'outline': 'b-', 'ray': 'b-', 'rung': 'c-', 'diag': 'y-', 'attach': 'm-'}
+    # NOTE: colors must be passed via color= (not as the positional fmt
+    # string) since 'fill' needs an RGBA tuple -- plt.plot(x, y, a_tuple)
+    # does NOT set the color, it silently treats the tuple as a *second*
+    # y-dataset (with auto x=[0,1,2,...]), which draws a bogus line across
+    # the whole axes and blows out the plot's autoscale.
+    plot_colors = {'outline': 'b', 'ray': 'b', 'rung': 'c', 'diag': 'y',
+                    'fill': (0.6, 0.6, 0.6, 0.6)}
     for (i, j, kind) in connections:
-        plt.plot([xLag[i], xLag[j]], [yLag[i], yLag[j]], plot_colors.get(kind, 'k-'), linewidth=0.75)
+        lw = 0.4 if kind == 'fill' else 0.75
+        plt.plot([xLag[i], xLag[j]], [yLag[i], yLag[j]],
+                  color=plot_colors.get(kind, 'k'), linewidth=lw)
     for rail in outlineRailIdx:
         plt.plot(xLag[rail], yLag[rail], 'r*')
     for railPair in rayRailIdxList:
         for rail in railPair:
             plt.plot(xLag[rail], yLag[rail], 'g*')
+    for ribbon in ribbonPolys:
+        if ribbon['interior_idx']:
+            plt.plot(xLag[ribbon['interior_idx']], yLag[ribbon['interior_idx']], 'k.', markersize=2)
     plt.xlabel('x')
     plt.ylabel('y')
     plt.axis('square')
+    plt.savefig('geometry_preview.png', dpi=150)
     plt.show()
 
     # Print .vertex file
@@ -75,21 +115,30 @@ def FinRay_Geom():
     print_Geometry_Connections(connections, struct_name)
 
     # Print .spring file
-    #   k_Spring: per-rail axial stiffness. Each ribbon is idealized as a
-    #     2-flange truss approximating a solid EI beam, so each rail only
-    #     carries half the wall's cross-sectional area (A/2), separated by
-    #     ~wall_thickness from its partner rail.
-    #   k_Rung:   cross-thickness ('rung' + 'diag') springs approximate the
-    #     "web" of that idealized beam, i.e. the material's shear
-    #     resistance across the wall thickness.
-    #   k_Attach: ray-to-outline junction springs - play around to see how
-    #     tail flap is affected by making these stiffer/softer than the
-    #     material itself.
+    #   k_Spring/k_Rung: nominal (ds-based) reference stiffnesses -- still
+    #     used below for k_Beam/k_Target, which want a single representative
+    #     magnitude, not a per-spring value.
+    #   Each individual 'outline'/'ray'/'rung'/'diag' spring's actual
+    #     stiffness is now computed per-spring from its OWN rest length
+    #     (k = E*A / L_own, the standard truss-element formula -- see the
+    #     length-aware stiffness note in NOTES.md), not from a single
+    #     constant shared by every spring of that kind. Recovering the E*A
+    #     (or G*A) product from k_Spring/k_Rung avoids redefining
+    #     spring_Stiffness_From_Material/shear_Stiffness_From_Material:
+    #     since k_Spring = E*A/ds, E*A = k_Spring*ds.
+    #   Ray-to-outline junctions no longer get a separate spring constant --
+    #     each ray is now welded directly into the outline's own rail point
+    #     sequence (see weld_to_inner_rail in _Build_Tail_Geometry_Ribbon),
+    #     so that joint is just an ordinary 'outline'/'ray' rail spring.
     k_Spring = spring_Stiffness_From_Material(E_material, wall_thickness / 2.0, extrude_depth, ds)
     k_Rung = shear_Stiffness_From_Material(E_material, wall_thickness, extrude_depth, ds)
-    k_Attach = 50.0 * k_Spring
-    k_by_kind = {'outline': k_Spring, 'ray': k_Spring, 'rung': k_Rung, 'diag': k_Rung, 'attach': k_Attach}
-    print_Lagrangian_Springs(xLag, yLag, connections, k_by_kind, struct_name)
+    EA_rail = k_Spring * ds   # = E * (wall_thickness/2 * extrude_depth)
+    GA_web = k_Rung * ds      # = G * (wall_thickness * extrude_depth)
+    # 'fill' (interior mesh) springs are resolved through fill_edge_k
+    # instead; EA_rail here is just a defensive fallback.
+    EA_by_kind = {'outline': EA_rail, 'ray': EA_rail, 'rung': GA_web, 'diag': GA_web,
+                  'fill': EA_rail}
+    print_Lagrangian_Springs(xLag, yLag, connections, EA_by_kind, struct_name, fill_edge_k=fill_edge_k)
 
     # Print .beam file
     #   NOTE: the tail's bending resistance comes from the ribbon truss
@@ -106,8 +155,31 @@ def FinRay_Geom():
 
     # Print .target file
     #   k_Target is set to very high to hold the points nearly rigid.
+    #   Actuation pushes each base corner as a small rigid PATCH of nearby
+    #   points (not just the single corner vertex) -- mimicking a real
+    #   actuator, which presses over a small contact area rather than an
+    #   infinitesimal point. A single-point push otherwise concentrates all
+    #   the forcing on one Lagrangian point, which showed up as an
+    #   unrealistic local twist right at that point rather than a
+    #   distributed push (see NOTES.md).
     k_Target = 1000.0 * k_Spring
-    print_Lagrangian_Target_Pts(list(baseCornerIdx), k_Target, struct_name)
+    actuation_patch_radius = _geom.get('actuation_patch_radius', None)
+    if actuation_patch_radius is None:
+        # Tied to wall_thickness, NOT ds: the two rails at a corner are
+        # only ~wall_thickness apart, so this reliably captures "both
+        # rails of this corner" (the actual physical extent of the
+        # material there) regardless of mesh resolution. A ds-based
+        # default was tried first and rejected -- for this geometry, ds
+        # happens to be close to the distance to the *adjacent* slant
+        # edge's nearest point, so a ds-sized radius pulled in a point
+        # from a different edge (not more of the base itself), which
+        # measurably destabilized the sim (NaN) at high
+        # ribbon_fill_density_multiplier -- see NOTES.md. Going much
+        # bigger than wall_thickness risks the same failure mode again.
+        actuation_patch_radius = 1.0 * wall_thickness
+    target_indices = _actuation_patch_indices(xLag, yLag, baseCornerIdx, actuation_patch_radius,
+                                               ribbonPolys=ribbonPolys)
+    print_Lagrangian_Target_Pts(target_indices, k_Target, struct_name)
 
 
 
@@ -162,14 +234,30 @@ def print_Geometry_Connections(connections, struct_name):
 #
 # ---------------------------------------------------------------------------
 
-def print_Lagrangian_Springs(xLag, yLag, connections, k_by_kind, struct_name, deg_NL=1.0):
+def print_Lagrangian_Springs(xLag, yLag, connections, EA_by_kind, struct_name,
+                              fill_edge_k=None, deg_NL=1.0):
     '''
     Prints springs to .spring file.
 
     connections: list of (i, j, kind) generated by build_Tail_Ribbon_Connections()
-    k_by_kind: dict mapping each connection 'kind' (see build_Tail_Ribbon_Connections)
-        to its spring constant
+    EA_by_kind: dict mapping each connection 'kind' (see build_Tail_Ribbon_Connections)
+        to that kind's modulus x area product (E*A for 'outline'/'ray' rail
+        springs, G*A for 'rung'/'diag' web springs -- NOT yet divided by a
+        length). Each spring's actual stiffness is computed here as
+        k = EA_by_kind[kind] / ds_Rest, i.e. from THAT SPRING'S OWN rest
+        length, not a single nominal-ds-based constant shared by every
+        spring of that kind -- see the "length-aware stiffness" note in
+        NOTES.md for why this matters (in short: k=EA/L is the standard
+        truss-element formula, and treating L as a fixed nominal ds instead
+        of each spring's actual length makes any short spring -- e.g. one
+        created by weld_to_inner_rail's junction splicing -- silently too
+        soft for its length).
     struct_name: name of the structure
+    fill_edge_k: dict mapping (min(i,j), max(i,j)) -> stiffness for 'fill'
+        (interior mesh) connections, whose stiffness is computed directly
+        per-edge in build_Tail_Ribbon_Connections (a different, tributary-
+        area-based formula, not the EA/L one here). Falls back to
+        EA_by_kind['fill'] / ds_Rest if None.
     deg_NL: degree of nonlinearity
     '''
     N = len(connections)
@@ -179,8 +267,59 @@ def print_Lagrangian_Springs(xLag, yLag, connections, k_by_kind, struct_name, de
 
         for (i, j, kind) in connections:
             ds_Rest = float(np.hypot(xLag[j] - xLag[i], yLag[j] - yLag[i])) # set initial distance as resting length
-            k = k_by_kind[kind]
+            if kind == 'fill' and fill_edge_k is not None:
+                k = fill_edge_k[(min(i, j), max(i, j))]
+            else:
+                k = EA_by_kind[kind] / ds_Rest
             f.write('%d %d %1.16e %1.16e %1.16e\n' % (i, j, k, ds_Rest, deg_NL))
+
+def _actuation_patch_indices(xLag, yLag, baseCornerIdx, radius, ribbonPolys=None):
+    '''
+    Expands baseCornerIdx's 2 corners (each already 2 points -- both rails)
+    into a "patch" of every Lagrangian point within `radius` of that
+    corner's true position -- so update_Target_Point_Positions.py can move
+    a whole small rigid cluster of nearby points together instead of just
+    the single corner vertex, approximating a real actuator's finite
+    contact area rather than a point force.
+
+    baseCornerIdx: (railA_bottom, railB_bottom, railA_top, railB_top), as
+        returned by _Build_Tail_Geometry_Ribbon.
+    radius: patch radius, same units as xLag/yLag (meters). Should stay
+        well under half the base width, or the two patches could merge.
+    ribbonPolys: if given, restricts the patch to BOUNDARY (rail) points
+        only, excluding every ribbon's Halton-fill interior points -- a
+        real actuator grips the material's outer surface, not its bulk
+        interior, and forcing many densely-packed fill points into exact
+        rigid lockstep (their count scales with ribbon_fill_density_
+        multiplier, so this can mean dozens of them at high density) via
+        the very stiff target springs was found to destabilize the
+        simulation (NaN) at high multiplier/stiffness-scale combinations
+        that were otherwise stable -- see NOTES.md. None restricts to
+        nothing (every point is eligible), matching the pre-fix search.
+
+    Returns a sorted list of point indices (the union of both patches;
+    always includes the original 4 corner points regardless of radius).
+    '''
+    xLag, yLag = np.asarray(xLag), np.asarray(yLag)
+    bottom_ref = np.array([xLag[baseCornerIdx[0]] + xLag[baseCornerIdx[1]],
+                            yLag[baseCornerIdx[0]] + yLag[baseCornerIdx[1]]]) / 2.0
+    top_ref = np.array([xLag[baseCornerIdx[2]] + xLag[baseCornerIdx[3]],
+                         yLag[baseCornerIdx[2]] + yLag[baseCornerIdx[3]]]) / 2.0
+
+    pts = np.column_stack((xLag, yLag))
+    near_bottom = np.linalg.norm(pts - bottom_ref, axis=1) <= radius
+    near_top = np.linalg.norm(pts - top_ref, axis=1) <= radius
+    eligible = near_bottom | near_top
+    if ribbonPolys is not None:
+        interior_idx = set()
+        for ribbon in ribbonPolys:
+            interior_idx.update(ribbon['interior_idx'])
+        for idx in interior_idx:
+            eligible[idx] = False
+    patch = set(np.where(eligible)[0].tolist())
+    patch.update(baseCornerIdx)  # guarantee the true corners are always included
+    return sorted(patch)
+
 
 def print_Lagrangian_Target_Pts(target_indices, k_Target, struct_name):
     '''
@@ -364,7 +503,10 @@ def give_Me_Immersed_Boundary_Geometry(ds, Nx):
     Nx: Eulerian grid resolution
     '''
     wall_thickness = _geom.get('wall_thickness', 0.00396)
-    xLag, yLag, _, _, _ = _Build_Tail_Geometry_Ribbon(ds, wall_thickness)
+    xLag, yLag, _, _, _, _ = _Build_Tail_Geometry_Ribbon(
+        ds, wall_thickness,
+        fill_spacing=_geom.get('ribbon_fill_spacing', None),
+        fill_density_multiplier=_geom.get('ribbon_fill_density_multiplier', 1.0))
     return xLag, yLag
 
 
@@ -410,7 +552,9 @@ def give_Me_Immersed_Boundary_Geometry(ds, Nx):
 #
 # ---------------------------------------------------------------------------
 
-def build_Tail_Ribbon_Connections(xLag, yLag, outlineRailIdx, rayRailIdxList):
+def build_Tail_Ribbon_Connections(xLag, yLag, outlineRailIdx, rayRailIdxList,
+                                   ribbonPolys=None, E_material=None,
+                                   extrude_depth=None, fill_stiffness_scale=1.0):
     '''
     Builds the list of (i, j, kind) triples for the ribboned structure.
     kind is one of:
@@ -422,11 +566,23 @@ def build_Tail_Ribbon_Connections(xLag, yLag, outlineRailIdx, rayRailIdxList):
                  gives the ribbon shear stiffness - without these, a ribbon
                  built from 'rung' springs alone is a mechanism that can
                  freely shear into a parallelogram.
-      'attach':  each ray's two rail-ends connected to their nearest
-                 outline rail point.
+      'fill':    edges from Delaunay-triangulating a ribbon's interior
+                 Halton-sampled points against its own boundary (see
+                 ribbonPolys / _mesh_utils.triangulate_with_holes below).
+                 Only added if ribbonPolys is given.
 
     kind is returned explicitly so the caller can give each a different
     stiffness (e.g. 'attach' stiffer/softer than the material itself).
+
+    ribbonPolys: optional list of dicts (see _Build_Tail_Geometry_Ribbon),
+        one per ribbon, each with 'boundary_idx'/'exterior'/'holes'/
+        'interior_idx'. When given (together with E_material and
+        extrude_depth), each ribbon's interior points are triangulated and
+        added as 'fill' connections.
+
+    Returns (connections, fill_edge_k): fill_edge_k maps each 'fill' edge's
+    (min(i,j), max(i,j)) pair to its stiffness (see the tributary-area
+    formula below); it's empty if ribbonPolys is None.
     '''
 
     connections = []
@@ -461,17 +617,86 @@ def build_Tail_Ribbon_Connections(xLag, yLag, outlineRailIdx, rayRailIdxList):
         add_rail_chain(rB, False, 'ray')
         add_rungs_and_diagonals(rA, rB, False)
 
-    # Attach each ray's rail-ends to their nearest outline rail point
-    outlineIdx = list(outlineRailIdx[0]) + list(outlineRailIdx[1])
-    outline_xy = np.column_stack((xLag[outlineIdx], yLag[outlineIdx]))
-    for (rA, rB) in rayRailIdxList:
-        for endpoint in (rA[0], rB[0], rA[-1], rB[-1]):
-            p = np.array([xLag[endpoint], yLag[endpoint]])
-            dists = np.linalg.norm(outline_xy - p, axis=1)
-            nearest_idx = outlineIdx[int(np.argmin(dists))]
-            connections.append((endpoint, nearest_idx, 'attach'))
+    # NOTE: rays no longer get a separate 'attach' spring to the outline --
+    # each ray rail's endpoints are now welded directly into the outline's
+    # own inner-rail point sequence at geometry-construction time (see
+    # weld_to_inner_rail in _Build_Tail_Geometry_Ribbon), so they're already
+    # covered by the 'outline'/'ray'/'rung'/'diag' connections built above:
+    # a welded endpoint is simultaneously a member of the outline's rail
+    # chain (gets 'outline' springs to its outline neighbors) and of its
+    # ray's rail chain (gets 'ray'/'rung'/'diag' springs there too).
 
-    return connections
+    # Two different rail endpoints can legitimately weld to the very same
+    # existing outline vertex (or two adjacent rung/diag pairs can
+    # coincidentally match an already-built 'outline' pair) -- drop any
+    # resulting self-loop (i == j, which would otherwise become a
+    # zero-length, divide-by-zero spring) and any exact duplicate (i, j)
+    # pair, keeping the first (lowest-priority-kind) occurrence.
+    seen_pairs = set()
+    deduped = []
+    for (i, j, kind) in connections:
+        if i == j:
+            continue
+        pair = (min(i, j), max(i, j))
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        deduped.append((i, j, kind))
+    connections = deduped
+
+    # Interior mesh fill: Delaunay-triangulate each ribbon's boundary +
+    # interior Halton points, and add any triangulation edge not already
+    # covered by the rail/rung/diag/attach logic above as a 'fill' spring.
+    # Stiffness is derived per-edge (not per-kind, unlike everything else
+    # here) via a tributary-area lattice-spring approximation -- see
+    # NOTES.md for the derivation and its caveats.
+    fill_edge_k = {}
+    if ribbonPolys:
+        existing_pairs = {(min(i, j), max(i, j)) for (i, j, _k) in connections}
+        for ribbon in ribbonPolys:
+            b_idx, i_idx = ribbon['boundary_idx'], ribbon['interior_idx']
+            if not i_idx:
+                # No interior fill points for this ribbon (e.g.
+                # density_multiplier=0, or a ribbon too thin for even one
+                # point) -- skip triangulation entirely rather than
+                # triangulating the boundary points alone, which would add
+                # spurious boundary-to-boundary 'fill' diagonals the sparse
+                # truss never had.
+                continue
+            boundary_pts = np.column_stack((xLag[b_idx], yLag[b_idx]))
+            interior_pts = np.column_stack((xLag[i_idx], yLag[i_idx]))
+            all_pts, edges_local, tris = mu.triangulate_with_holes(
+                ribbon['exterior'], ribbon['holes'], boundary_pts, interior_pts)
+
+            # Per-triangle area split evenly (1/3) across its 3 edges, so
+            # each edge's stiffness reflects the material tributary to it.
+            edge_area = {}
+            for simplex in tris:
+                p0, p1, p2 = all_pts[simplex]
+                area = 0.5 * abs((p1[0] - p0[0]) * (p2[1] - p0[1])
+                                  - (p2[0] - p0[0]) * (p1[1] - p0[1]))
+                i, j, k = simplex
+                for a, b in ((i, j), (j, k), (k, i)):
+                    key = (min(a, b), max(a, b))
+                    edge_area[key] = edge_area.get(key, 0.0) + area / 3.0
+
+            local_to_global = list(b_idx) + list(i_idx)
+            for (a, b) in edges_local:
+                gi, gj = local_to_global[a], local_to_global[b]
+                pair = (min(gi, gj), max(gi, gj))
+                if pair in existing_pairs:
+                    continue  # already covered by outline/ray/rung/diag/attach
+                existing_pairs.add(pair)
+                L = float(np.hypot(xLag[gi] - xLag[gj], yLag[gi] - yLag[gj]))
+                A = edge_area.get((a, b), 0.0)
+                # k = fill_stiffness_scale * E * depth * A_tributary / L^2
+                # (equates discrete spring energy to continuum strain energy
+                # over the edge's tributary volume A_tributary*depth)
+                k = fill_stiffness_scale * E_material * extrude_depth * A / max(L ** 2, 1e-30)
+                connections.append((gi, gj, 'fill'))
+                fill_edge_k[pair] = k
+
+    return connections, fill_edge_k
 
 
 def _offset_polyline(pts, halfThickness, closed):
@@ -607,7 +832,26 @@ def _offset_polyline(pts, halfThickness, closed):
 #
 # ---------------------------------------------------------------------------
 
-def _Build_Tail_Geometry_Ribbon(ds, wall_thickness):
+def _n_points_for_length(length, ds):
+    '''
+    Number of points to discretize an OPEN segment of the given length at
+    ~ds spacing. Rounds to the nearest number of SEGMENTS (not points) and
+    derives point count from that (points = segments + 1) -- for an open
+    chain, n points give n-1 segments, and rounding the POINT count
+    directly (as every one of base/top-slant/bottom-slant/ray used to)
+    silently drops that -1: negligible for a long edge with many segments,
+    but severe for a short one. E.g. a ray needing "2.14 segments" rounded
+    the POINT count to 2 (best case per the old formula), i.e. exactly 1
+    segment spanning the ray's FULL length -- 214% of ds, not the ~107%
+    the segment-based rounding here gives. At least 1 segment (2 points)
+    is always used, since a line needs at least 2 points to exist at all.
+    '''
+    n_segments = max(round(length / ds), 1)
+    return n_segments + 1
+
+
+def _Build_Tail_Geometry_Ribbon(ds, wall_thickness, fill_spacing=None,
+                                 fill_density_multiplier=1.0):
     '''
     Builds the ribboned tail geometry: the same outline + 4 internal-ray
     centerlines as the legacy _Build_Tail_Geometry, except each centerline
@@ -615,13 +859,28 @@ def _Build_Tail_Geometry_Ribbon(ds, wall_thickness):
     apart, so the structure has a real physical thickness instead of
     encoding it only through the spring/beam stiffness formulas.
 
+    Each ribbon (the outline, and each of the 4 rays) also gets its 2D
+    interior filled with Halton-sampled points (see
+    _mesh_utils.fill_polygon_with_halton), so the ribbon can be meshed as a
+    proper continuum strip rather than just its two rail lines -- see
+    ribbonPolys below and build_Tail_Ribbon_Connections.
+
+    fill_spacing: target interior-point spacing; None falls back to ds.
+    fill_density_multiplier: scales the fill point count (0 disables fill).
+
     Returns:
       xLag, yLag: all Lagrangian point coordinates
       outlineRailIdx: (railA_idx, railB_idx) for the closed outline ribbon
       rayRailIdxList: list of (railA_idx, railB_idx) for each open ray ribbon
       baseCornerIdx: the 4 point indices at the base's two corners (both
           rails), used as target/actuation points
+      ribbonPolys: list of dicts, one per ribbon (outline + each ray), each
+          with 'kind', 'boundary_idx' (rail point indices, exterior loop
+          followed by any hole loop), 'exterior', 'holes' (point arrays,
+          for _mesh_utils.triangulate_with_holes), and 'interior_idx' (the
+          new Halton-fill point indices)
     '''
+    fill_spacing = ds if fill_spacing is None else fill_spacing
     # !Provide real tail geometry here! (same units as Lx, Ly in input2d)
     L = 0.136   # Tail length
     W = 0.051   # Base width
@@ -644,20 +903,20 @@ def _Build_Tail_Geometry_Ribbon(ds, wall_thickness):
     # into two rails below instead of being used directly)
     cx, cy = [], []
 
-    nBase = max(round(W / ds), 2)
+    nBase = _n_points_for_length(W, ds)
     yBase = np.linspace(y0 - W / 2, y0 + W / 2, nBase)
     xBase = x0 * np.ones_like(yBase)
     cx.extend(xBase); cy.extend(yBase)
 
     topStart = np.array([x0, y0 + W / 2])
     tip = np.array([x0 + L, y0])
-    nTop = max(round(np.linalg.norm(tip - topStart) / ds), 2)
+    nTop = _n_points_for_length(np.linalg.norm(tip - topStart), ds)
     xTop = np.linspace(topStart[0], tip[0], nTop)
     yTop = np.linspace(topStart[1], tip[1], nTop)
     cx.extend(xTop[1:]); cy.extend(yTop[1:])          # drop shared corner
 
     botEnd = np.array([x0, y0 - W / 2])
-    nBot = max(round(np.linalg.norm(botEnd - tip) / ds), 2)
+    nBot = _n_points_for_length(np.linalg.norm(botEnd - tip), ds)
     xBot = np.linspace(tip[0], botEnd[0], nBot)
     yBot = np.linspace(tip[1], botEnd[1], nBot)
     cx.extend(xBot[1:-1]); cy.extend(yBot[1:-1])      # drop both shared corners
@@ -684,27 +943,140 @@ def _Build_Tail_Geometry_Ribbon(ds, wall_thickness):
     baseCornerIdx = (railAIdx[baseBottomCenterIdx], railBIdx[baseBottomCenterIdx],
                       railAIdx[baseTopCenterIdx], railBIdx[baseTopCenterIdx])
 
+    ribbonPolys = []
+
+    # The outline ribbon is a hollow "picture frame": one rail is the outer
+    # loop, the other the inner (hole) loop. Which is which depends only on
+    # containment, not on which offset direction _offset_polyline happened
+    # to call railA/railB. Rays only ever WELD to the INNER rail (they live
+    # in the hollow interior) -- but both rails are kept as plain (mutable)
+    # lists and spliced IN LOCKSTEP (see weld_to_inner_rail below), so they
+    # stay the same length with the same per-position correspondence that
+    # add_rungs_and_diagonals relies on (rail A's k-th point assumed to sit
+    # directly across the ribbon from rail B's k-th point). An earlier
+    # version only spliced the inner rail, which desynced that
+    # correspondence from the first splice onward -- add_rungs_and_diagonals
+    # then paired far-apart points by matching (now-meaningless) array
+    # index instead of physical position, producing long spurious 'rung'/
+    # 'diag' springs that cut straight across the tail's open "windows".
+    if _MplPath(railA, closed=True).contains_point(railB[0]):
+        ext_pts, ext_idx, hole_pts, hole_idx = list(railA), railAIdx, list(railB), railBIdx
+    else:
+        ext_pts, ext_idx, hole_pts, hole_idx = list(railB), railBIdx, list(railA), railAIdx
+
+    def weld_to_inner_rail(p_xy):
+        '''
+        Finds where p_xy (a ray rail's endpoint) actually meets the
+        outline's inner rail, and welds it there: reuses the nearest
+        existing inner-rail vertex if p_xy's projection lands within EPS of
+        one (avoids creating a near-duplicate point on top of an existing
+        one -- and the near-zero-length spring that would come with it),
+        otherwise splices a brand-new point into hole_pts/hole_idx (in
+        place, so it becomes a genuine member of the outline's own rail
+        chain -- automatically picked up by add_rail_chain/add_rungs_and_
+        diagonals below, no separate 'attach' spring needed).
+
+        Whenever a new point IS spliced into the inner rail, a partner
+        point is also spliced into the outer rail at the same segment index
+        and the same parametric position t (i.e. the equivalent point on
+        the corresponding outer-rail segment) -- this partner has no
+        special role of its own (nothing welds to it), it exists purely to
+        keep both rails the same length / positionally in sync. Since
+        wall_thickness is tiny relative to the outline's feature sizes (the
+        same justification used elsewhere for the offset/triangulation
+        approximations), using the same t on the parallel outer segment is
+        an accurate stand-in for that segment's true corresponding point.
+
+        Returns (idx, xy) of the final, shared point -- xy may differ
+        slightly from p_xy (it's snapped exactly onto the inner rail), so
+        callers should use it (not the original p_xy) for the ray's own
+        rail coordinates too, or the ray and outline would no longer
+        actually touch.
+        '''
+        foot, seg_i, t = mu.project_point_to_polyline(p_xy, np.asarray(hole_pts), closed=True)
+        n = len(hole_pts)
+        EPS = 0.02  # fraction of the segment length
+        if t <= EPS:
+            return hole_idx[seg_i], hole_pts[seg_i]
+        if t >= 1.0 - EPS:
+            j = (seg_i + 1) % n
+            return hole_idx[j], hole_pts[j]
+
+        new_idx = add_points(foot.reshape(1, 2))[0]
+        hole_pts.insert(seg_i + 1, foot)
+        hole_idx.insert(seg_i + 1, new_idx)
+
+        n_ext = len(ext_pts)
+        a_ext, b_ext = ext_pts[seg_i], ext_pts[(seg_i + 1) % n_ext]
+        foot_ext = a_ext + t * (b_ext - a_ext)
+        new_ext_idx = add_points(foot_ext.reshape(1, 2))[0]
+        ext_pts.insert(seg_i + 1, foot_ext)
+        ext_idx.insert(seg_i + 1, new_ext_idx)
+
+        return new_idx, foot
+
     # 4 internal rays, each parallel to the base, ribboned the same way.
     # Each ray's rail indices are tracked separately (rayRailIdxList) so
     # that build_Tail_Ribbon_Connections can keep them as independent open
     # chains instead of accidentally chaining ray -> next ray.
+    #
+    # Each rail's two ends are welded directly onto the outline's inner rail
+    # (weld_to_inner_rail above) rather than left as free-floating points
+    # tied to the nearest existing outline point by a separate 'attach'
+    # spring -- that old approach left a small standoff gap (a spring only
+    # resists distance changes, not angle, so with no beam spanning the
+    # joint it behaved like a hinge rather than a fused connection; see
+    # NOTES.md / build_Tail_Beams). Only each rail's INTERIOR points (not
+    # its welded endpoints) get fresh point indices.
     rayRailIdxList = []
     for d in rayPositions:
         hw = halfWidth(d)
-        nRay = max(round((2 * hw) / ds), 2)
+        nRay = _n_points_for_length(2 * hw, ds)
         yRay = np.linspace(y0 - hw, y0 + hw, nRay)
         xRay = (x0 + d) * np.ones_like(yRay)
         rayCenterline = np.column_stack((xRay, yRay))
 
         rA, rB = _offset_polyline(rayCenterline, halfT, closed=False)
-        rAIdx = add_points(rA)
-        rBIdx = add_points(rB)
+
+        botA_idx, rA[0] = weld_to_inner_rail(rA[0])
+        topA_idx, rA[-1] = weld_to_inner_rail(rA[-1])
+        botB_idx, rB[0] = weld_to_inner_rail(rB[0])
+        topB_idx, rB[-1] = weld_to_inner_rail(rB[-1])
+
+        rA_interior_idx = add_points(rA[1:-1]) if nRay > 2 else []
+        rB_interior_idx = add_points(rB[1:-1]) if nRay > 2 else []
+        rAIdx = [botA_idx] + rA_interior_idx + [topA_idx]
+        rBIdx = [botB_idx] + rB_interior_idx + [topB_idx]
         rayRailIdxList.append((rAIdx, rBIdx))
+
+        # Close the open two-rail strip into a simple polygon (up one rail,
+        # back down the other) so it can be Halton-filled/triangulated.
+        ring_pts = np.vstack([rA, rB[::-1]])
+        ring_idx = rAIdx + rBIdx[::-1]
+        ray_interior_xy = mu.fill_polygon_with_halton(
+            ring_pts, holes=None, spacing=fill_spacing,
+            density_multiplier=fill_density_multiplier)
+        ray_interior_idx = add_points(ray_interior_xy)
+        ribbonPolys.append(dict(kind='ray', boundary_idx=ring_idx,
+                                 exterior=ring_pts, holes=[],
+                                 interior_idx=ray_interior_idx))
+
+    # The outline's own Halton fill happens LAST, using the final
+    # hole_pts/hole_idx (after every ray has welded its endpoints in) --
+    # otherwise its interior mesh would be triangulated against a boundary
+    # that's missing the very junction points the rays just added.
+    outline_interior_xy = mu.fill_polygon_with_halton(
+        ext_pts, holes=[hole_pts], spacing=fill_spacing,
+        density_multiplier=fill_density_multiplier)
+    outline_interior_idx = add_points(outline_interior_xy)
+    ribbonPolys.append(dict(kind='outline', boundary_idx=ext_idx + hole_idx,
+                             exterior=ext_pts, holes=[hole_pts],
+                             interior_idx=outline_interior_idx))
 
     xLag = np.array(xLag)
     yLag = np.array(yLag)
 
-    return xLag, yLag, outlineRailIdx, rayRailIdxList, baseCornerIdx
+    return xLag, yLag, outlineRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys
 
 
 if __name__ == "__main__":

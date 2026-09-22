@@ -1,9 +1,9 @@
 {
-  "case_name": "baseline",
+  "case_name": "mult64.00_scale1.00",
   "input2d": {
     "mu": 0.001,
     "rho": 1.0,
-    "Tfinal": 5.0,
+    "Tfinal": 15.0,
     "dt": 0.001,
     "Nx": 32,
     "Ny": 32,
@@ -14,10 +14,14 @@
   "geom": {
     "E_material": 740000.0,
     "wall_thickness": 0.00396,
-    "extrude_depth": 0.05
+    "extrude_depth": 0.05,
+    "ribbon_fill_spacing": null,
+    "ribbon_fill_density_multiplier": 64.0,
+    "ribbon_fill_stiffness_scale": 1.0,
+    "actuation_patch_radius": null
   },
   "actuation": {
-    "FREQUENCY": 1.0,
+    "FREQUENCY": 0.1,
     "AMPLITUDE": 0.01,
     "TARGET_STIFFNESS_SCALE": 0.2,
     "STIFFNESS_RAMP_TIME": 0.2
