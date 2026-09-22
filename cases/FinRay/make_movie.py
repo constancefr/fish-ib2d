@@ -3,8 +3,8 @@ VisIt batch movie script for the FinRay IB2d example.
 
 Usage (from a normal shell, not VisIt's GUI):
     visit -cli -nowin -s make_movie.py -- <case_dir> <output.mp4> [fps]
-EXAMPLE FOR BASE CASE amp0.010_E7.40e+05:
-    /Applications/VisIt.app/Contents/Resources/bin/visit -quiet -cli -nowin -s make_movie.py -- results/amp0.010_E7.40e+05 output_sim.mp4
+EXAMPLE FOR BASE CASE `baseline`:
+    /Applications/VisIt.app/Contents/Resources/bin/visit -quiet -cli -nowin -s make_movie.py -- results/baseline baseline_sim.mp4
 
 <case_dir> should contain a viz_IB2d/ folder, as produced by run_case.py
 or a plain `python main2d.py` run. Renders one PNG per saved timestep,
