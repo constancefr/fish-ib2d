@@ -49,6 +49,6 @@ git add external/IB2d && git commit -m "Bump IB2d to <commit>"
 
 ## Citations
 
-- N.A. Battista, A.J. Baird, L.A. Miller, A mathematical model and MATLAB code for muscle-fluid-structure simulations, Integ. Comp. Biol. 55(5):901-911 (2015), LINK
-- N.A. Battista, W.C. Strickland, L.A. Miller, IB2d:a Python and MATLAB implementation of the immersed boundary method, Bioinspiration and Biomemetics 12(3): 036003 (2017), LINK
-- N.A. Battista, W.C. Strickland, A. Barrett, L.A. Miller, IB2d Reloaded: a more powerful Python and MATLAB implementation of the immersed boundary method, in press Math. Method. Appl. Sci. 41:8455-8480 (2018) LINK
+- N.A. Battista, A.J. Baird, L.A. Miller, A mathematical model and MATLAB code for muscle-fluid-structure simulations, Integ. Comp. Biol. 55(5):901-911 (2015), [LINK]([url](http://www.ncbi.nlm.nih.gov/pubmed/26337187))
+- N.A. Battista, W.C. Strickland, L.A. Miller, IB2d:a Python and MATLAB implementation of the immersed boundary method, Bioinspiration and Biomemetics 12(3): 036003 (2017), [LINK]([url](http://iopscience.iop.org/article/10.1088/1748-3190/aa5e08/meta))
+- N.A. Battista, W.C. Strickland, A. Barrett, L.A. Miller, IB2d Reloaded: a more powerful Python and MATLAB implementation of the immersed boundary method, in press Math. Method. Appl. Sci. 41:8455-8480 (2018) [LINK]([url](http://onlinelibrary.wiley.com/doi/10.1002/mma.4708/epdf?author_access_token=HKAwHFmV1yKY6_lY4_I0dU4keas67K9QMdWULTWMo8P3KIzKeMHgO9D_yBVf1ZxhuLjZr3RgM74HKTOZj3MqwU9I9Skl8KVs-2ruPFMgjIXF0QlZful2HU6NM7TQ0wkl))
