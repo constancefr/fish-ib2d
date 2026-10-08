@@ -18,3 +18,5 @@ Utils:
 
 Make sure you have downloaded <a href="https://visit-dav.github.io/visit-website/releases-as-tables/#latest">VisIt</a> for the movie generation to work!
 
+A second example, `pyIB2d/Examples/NACA0020_Wing`, replicates the NACA0020 wing of the WaterLily_FSI two-way-coupling example (`Wing_3order.jl`): a rigid leading edge plus a flexible Euler-Bernoulli cantilever (E = 1e4 Pa) in a free stream whose angle of attack switches 0 -> 15 deg. See its `NOTES.md` for the GVS -> IB2d mapping, the calibration (`verify_structure.py`), and the known limitations (notably: the stock IB2d `.beam` force is not conservative, so bending is done through `user_force_model`; and Re is reduced for solver stability). Run `python Wing_Geom.py`, then `python main2d.py`, then `python analyze_run.py` from that folder.
+

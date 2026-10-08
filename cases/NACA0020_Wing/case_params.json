@@ -1,0 +1,52 @@
+{
+  "case_name": "baseline",
+  "input2d": {
+    "mu": 0.030069000000000002,
+    "rho": 1000.0,
+    "Tfinal": 10.0,
+    "dt": 0.0001,
+    "Nx": 192,
+    "Ny": 192,
+    "Lx": 1.2,
+    "Ly": 1.2,
+    "supp": 4
+  },
+  "geom": {
+    "pitch_axis_world": [
+      0.4,
+      0.6
+    ],
+    "pitch_axis_from_LE": 0.03,
+    "rigid_length": 0.06,
+    "E_flex": 10000.0,
+    "rho_solid": 1064.6,
+    "span": 1.0,
+    "centerline_spacing": 0.01,
+    "EI_floor_thickness": 0.008,
+    "init_q": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "K_tie": 10000.0,
+    "K_skin": 50.0,
+    "K_target": 10000.0
+  },
+  "flow": {
+    "U": 0.2,
+    "aoa_deg": [
+      0.0,
+      15.0
+    ],
+    "aoa_switch_time": 5.0,
+    "aoa_ramp": 0.1,
+    "fringe_x": [
+      1.0,
+      1.2
+    ],
+    "fringe_ramp": 0.05,
+    "fringe_rate": 40.0,
+    "mean_rate": 20.0
+  }
+}
