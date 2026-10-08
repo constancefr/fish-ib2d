@@ -8,7 +8,7 @@ finding was verified)
 
 Geometry & meshing:
   - Added Halton-sampled interior "fill" points + Delaunay triangulation to
-    each ribbon (outline + 4 rays): _mesh_utils.py (Halton generator,
+    each ribbon (outline + 4 rays): mesh_utils.py (Halton generator,
     oriented-bbox sampler, polygon fill, triangulation) plus
     case_params.json["geom"]'s ribbon_fill_spacing/
     ribbon_fill_density_multiplier/ribbon_fill_stiffness_scale. See
@@ -89,7 +89,7 @@ Infrastructure (outside FinRay_Geom.py):
 
 Bugs found from incomplete prior edits (FOUND + FIXED):
   - An in-progress holes->inner_loops rename was completed across
-    FinRay_Geom.py but not _mesh_utils.py, so fill_polygon_with_halton()
+    FinRay_Geom.py but not mesh_utils.py, so fill_polygon_with_halton()
     raised TypeError on every single run. Fixed.
   - _Build_Tail_Geometry_Ribbon's `fill_spacing is None -> ds` fallback
     had been deleted even though its own docstring still promised it,
@@ -157,7 +157,7 @@ single stiffness formula (build_Tail_Ribbon_Connections, 2026-10-05):
     only). 100% is necessary, not sufficient: actual bending stiffness
     still has to be checked against beam theory / FE (calibration step).
 
-    TRIANGULATION BUGS FOUND + FIXED (in _mesh_utils.py) while checking:
+    TRIANGULATION BUGS FOUND + FIXED (in mesh_utils.py) while checking:
     1. matplotlib Path(loop, closed=True) IGNORES the last vertex (treats it
        as the CLOSEPOLY placeholder). Every inside/outside test dropped one
        corner per loop: triangles near it were discarded (one ray ribbon
@@ -366,7 +366,7 @@ build_Tail_Beams:
     RESOLVED for the current ribbon model: _Build_Tail_Geometry_Ribbon's
     weld_to_inner_rail welds each ray rail's two ends directly into the
     outline's own inner-rail point sequence (a shared vertex, found via
-    _mesh_utils.project_point_to_polyline -- the true point where the ray's
+    mesh_utils.project_point_to_polyline -- the true point where the ray's
     edge meets the outline, not just the nearest existing outline point),
     instead of adding a separate 'attach' spring to a nearby-but-different
     point. The 'attach' kind and its k_Attach=50*k_Spring stiffness no
@@ -435,8 +435,8 @@ beams flag (input2d) / zig-zag check (INVESTIGATED, left as-is):
 
 build_Tail_Ribbon_Connections (interior 'fill' springs):
     Each ribbon's actual 2D area (not just its two rails) is now filled
-    with Halton-sampled interior points (_mesh_utils.fill_polygon_with_halton)
-    and Delaunay-triangulated (_mesh_utils.triangulate_with_holes) into
+    with Halton-sampled interior points (mesh_utils.fill_polygon_with_halton)
+    and Delaunay-triangulated (mesh_utils.triangulate_with_holes) into
     'fill' springs, controlled by case_params.json's geom.ribbon_fill_*
     keys. Their stiffness is NOT the rail/rung/diag flange-web formula used
     elsewhere in this file -- it's a separate tributary-area lattice-spring
@@ -511,7 +511,7 @@ build_Tail_Ribbon_Connections (interior 'fill' springs):
 ribbon_fill_density_multiplier -> actual point count (reference):
     n_points_for_this_ribbon = round(multiplier * ribbon_area / ds**2),
     computed PER RIBBON (outline + each ray) via
-    _mesh_utils.fill_polygon_with_halton, then summed -- NOT a global
+    mesh_utils.fill_polygon_with_halton, then summed -- NOT a global
     point count set directly, and NOT the same as "multiplier x points
     along the boundary" (boundary point count is controlled entirely by
     _n_points_for_length/ds and does not change with this multiplier at
@@ -527,7 +527,7 @@ ribbon_fill_density_multiplier -> actual point count (reference):
         multiplier=64 -> 439
     Per-ribbon areas at these defaults: outline 1281.9mm^2, ray0 (widest)
     147.6mm^2, ray1 110.8mm^2, ray2 82.4mm^2, ray3 (thinnest) 49.7mm^2.
-    Recompute via ribbonPolys + _mesh_utils._shoelace_area if
+    Recompute via ribbonPolys + mesh_utils._shoelace_area if
     wall_thickness/L/W/rayPositions change.
 
 ribbon_fill_stiffness_scale -- what it represents (reference):
@@ -578,15 +578,15 @@ Incomplete-rename / dropped-fallback bugs (FOUND + FIXED):
     weren't fully propagated:
 
     1. ribbonPolys' dict keys (exterior->exterior_loop, holes->
-       inner_loops) and _mesh_utils.triangulate_with_holes's *positional*
+       inner_loops) and mesh_utils.triangulate_with_holes's *positional*
        call had been renamed consistently throughout FinRay_Geom.py, but
        fill_polygon_with_halton is called with inner_loops= as a KEYWORD
-       argument (lines ~827, 836), and _mesh_utils.py's own parameter was
+       argument (lines ~827, 836), and mesh_utils.py's own parameter was
        still named `holes` -- hence the TypeError.
        triangulate_with_holes itself wasn't broken (called positionally,
        so its internal parameter name doesn't matter to callers), but was
        left inconsistent with fill_polygon_with_halton. Fixed by
-       completing the rename in _mesh_utils.py: both functions' parameter
+       completing the rename in mesh_utils.py: both functions' parameter
        name, plus their internal variable names/docstrings
        (_far_from_boundary's `holes` param too).
 

@@ -18,10 +18,10 @@ import matplotlib.pyplot as plt
 from matplotlib.path import Path as _MplPath
 import json, os, sys
 
-_EXAMPLES_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _EXAMPLES_DIR not in sys.path:
-    sys.path.insert(0, _EXAMPLES_DIR)
-import _mesh_utils as mu
+_COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'common')
+if _COMMON_DIR not in sys.path:
+    sys.path.insert(0, _COMMON_DIR)
+import mesh_utils as mu
 
 _case_params = {}
 if os.path.exists('case_params.json'):
@@ -50,7 +50,7 @@ def FinRay_Geom():
 
     #-------------------------------------------------------------------
     # Halton sampling params - see fill_polygon_with_halton() + triangulate_with_holes() 
-    # in _mesh_utils.py
+    # in common/mesh_utils.py
     fill_spacing = _geom.get('ribbon_fill_spacing', ds) # default to ds
         # note: fill_spacing doesn't have to be >=ds, as it isn't the boundary
     fill_density_multiplier = _geom.get('ribbon_fill_density_multiplier', 1.0) 
@@ -449,7 +449,7 @@ def _Build_Tail_Geometry_Ribbon(ds, wall_thickness, fill_spacing=None,
             - 'kind'
             - 'boundary_idx' (rail point indices, i.e. exterior loop followed by any inner loop)
             - 'exterior_loop'
-            - 'inner_loops' (point arrays of inner loops i.e. around holes, for _mesh_utils.triangulate_with_holes)
+            - 'inner_loops' (point arrays of inner loops i.e. around holes, for mesh_utils.triangulate_with_holes)
             - 'interior_idx' (the new Halton fill point indices)
 
     NOTE: the tail is placed with its base vertical and the tip pointing right in the domain.

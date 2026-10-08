@@ -1,0 +1,3 @@
+[submodule "external/IB2d"]
+	path = external/IB2d
+	url = https://github.com/nickabattista/IB2d.git

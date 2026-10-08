@@ -1,7 +1,10 @@
 import numpy as np
+import os
 import sys
 
-sys.path.append('../../IBM_Blackbox')
+# IB2d solver comes from the external/IB2d submodule (repo root is two levels up)
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.join(_REPO_ROOT, 'external', 'IB2d', 'pyIB2d', 'IBM_Blackbox'))
 import IBM_Driver as Driver
 from please_Initialize_Simulation import please_Initialize_Simulation
 

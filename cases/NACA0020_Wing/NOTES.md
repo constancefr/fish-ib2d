@@ -6,7 +6,7 @@ Replicates `WaterLily_2Way_Coupling_Example/gvs_wings/Wing_3order.jl` as run by 
 
 ```sh
 conda activate ib2d          # numpy, numba, pyfftw, vtk, matplotlib
-cd pyIB2d/Examples/NACA0020_Wing
+cd cases/NACA0020_Wing
 python Wing_Geom.py --plot   # writes wing.vertex/.spring/.user_force/.target/.geo_connect + geometry_preview.png
 python verify_structure.py   # fluid-free calibration check (see below)
 python main2d.py             # the FSI run  (~10 ms/step at 192x192; 10 s at dt=1e-4 is ~17 min)

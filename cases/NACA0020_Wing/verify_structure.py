@@ -24,7 +24,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(HERE, '..', '..', 'IBM_Blackbox'))
+sys.path.insert(0, os.path.join(HERE, '..', '..', 'external', 'IB2d', 'pyIB2d', 'IBM_Blackbox'))
 
 import Wing_Geom as WG
 import wing_case

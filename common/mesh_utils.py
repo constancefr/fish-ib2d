@@ -6,7 +6,7 @@ interior points + a triangulation-derived spring edge list.
 Nothing here knows about ribbons, rays, tails, or wings -- callers hand in a
 polygon boundary (and, for an annular/hollow region, hole boundaries) and get
 back interior points plus mesh connectivity. Reusable by any
-Examples/*/*_Geom.py builder (currently FinRay_Geom.py; potentially
+cases/*/*_Geom.py builder (currently FinRay_Geom.py; potentially
 NACA0020_Wing/Wing_Geom.py or a fully-filled-shape example later).
 """
 
@@ -284,7 +284,7 @@ def fill_polygon_with_halton(exterior, inner_loops=None, spacing=None,
         # still leaves good coverage.
         pts = pts[:n_target]
     elif len(pts) < n_target:
-        print(f"[_mesh_utils] fill_polygon_with_halton: placed {len(pts)}/{n_target} "
+        print(f"[mesh_utils] fill_polygon_with_halton: placed {len(pts)}/{n_target} "
               f"points after {max_rounds} rounds (polygon may be thinner than the "
               f"requested spacing/min_boundary_gap allow); continuing with fewer points.")
     return pts

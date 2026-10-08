@@ -1,3 +1,6 @@
 numpy
 matplotlib
 scipy>=1.10
+numba          # required by IB2d's solver (IBM_Blackbox/Supp.py)
+vtk            # .vtk output and NACA0020_Wing/analyze_run.py
+# pyfftw       # optional: faster FFTs in the fluid solve (IB2d falls back to numpy)
