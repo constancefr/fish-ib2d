@@ -12,18 +12,15 @@ pip install -r requirements.txt
 
 If you already cloned without `--recurse-submodules`, fetch IB2d with `git submodule update --init`.
 
-Each case finds the solver relative to its own location (`external/IB2d/pyIB2d/IBM_Blackbox`), so no paths need editing wherever you clone this repo.
+Each case finds the solver relative to its own location (`external/IB2d/pyIB2d/IBM_Blackbox`).
 
 ## Layout
 
 ```
-cases/FinRay/          FinRay tail: geometry, actuation, parameter sweeps
-cases/NACA0020_Wing/   NACA0020 flexible-wing FSI case (WaterLily_FSI replication)
+cases/                 case implementations using IB2d (e.g. FinRay tail: geometry, actuation, parameter sweeps)
 common/mesh_utils.py   shape-agnostic Halton fill + constrained triangulation
-external/IB2d/         IB2d solver (submodule, unmodified)
+external/IB2d/         original IB2d solver
 ```
-
-Run every script from inside its case folder: IB2d reads `input2d` and the structure files from the current directory.
 
 ## FinRay
 
@@ -41,19 +38,17 @@ Utils:
 
 Modelling decisions and their verification are logged in `cases/FinRay/NOTES.md`.
 
-## NACA0020_Wing
-
-Replicates the NACA0020 wing of the WaterLily_FSI two-way-coupling example (`Wing_3order.jl`): a rigid leading edge plus a flexible Euler-Bernoulli cantilever (E = 1e4 Pa) in a free stream whose angle of attack switches from 0 to 15 deg. See its `NOTES.md` for the GVS → IB2d mapping, the calibration (`verify_structure.py`), and the known limitations (notably: the stock IB2d `.beam` force is not conservative, so bending is done through `user_force_model`; and Re is reduced for solver stability). Run `python Wing_Geom.py`, then `python main2d.py`, then `python analyze_run.py` from that folder.
-
 ## Updating IB2d
 
-The submodule stays at its pinned commit until you move it deliberately:
+In case updates are made in the original repository:
 
 ```sh
 git -C external/IB2d fetch && git -C external/IB2d checkout <commit>
 git add external/IB2d && git commit -m "Bump IB2d to <commit>"
 ```
 
-## History
+## Citations
 
-This work began as a fork of IB2d (`constancefr/IB2d`). The commits for these files were carried over, with paths rewritten from `pyIB2d/Examples/...` to the layout above.
+- N.A. Battista, A.J. Baird, L.A. Miller, A mathematical model and MATLAB code for muscle-fluid-structure simulations, Integ. Comp. Biol. 55(5):901-911 (2015), LINK
+- N.A. Battista, W.C. Strickland, L.A. Miller, IB2d:a Python and MATLAB implementation of the immersed boundary method, Bioinspiration and Biomemetics 12(3): 036003 (2017), LINK
+- N.A. Battista, W.C. Strickland, A. Barrett, L.A. Miller, IB2d Reloaded: a more powerful Python and MATLAB implementation of the immersed boundary method, in press Math. Method. Appl. Sci. 41:8455-8480 (2018) LINK
