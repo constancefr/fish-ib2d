@@ -1,0 +1,10 @@
+**/hier_IB2d_data/*
+**/viz_IB2d/*
+**/results/*
+
+**/visitlog.py
+
+*.mp4
+
+brouillon.txt
+.DS_Store

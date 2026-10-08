@@ -42,7 +42,8 @@ _act = _case_params.get('actuation', {})
 FREQUENCY = _act.get('FREQUENCY', 1.0)  # Hz, flapping frequency
 AMPLITUDE = _act.get('AMPLITUDE', 0.01)  # m, how far a corner is pushed perpendicular to the base
 STIFFNESS_RAMP_TIME = _act.get('STIFFNESS_RAMP_TIME', 0.2)  # s, smoothly ramps target stiffness from 0 to nominal
-TARGET_STIFFNESS_SCALE = _act.get('TARGET_STIFFNESS_SCALE', 0.2)  # 1.0 uses file value; lower values reduce destabilizing forcing
+# Target stiffness itself is set once, in FinRay_Geom.py (geom key
+# 'target_stiffness_factor'); the .target file value is used as-is here.
 
 # Active-corner sequencing over each cycle.
 # The row->patch mapping is inferred from baseline y-coordinates (every
@@ -109,7 +110,7 @@ def update_Target_Point_Positions(dt, current_time, target_info):
         ramp = min(max(current_time / STIFFNESS_RAMP_TIME, 0.0), 1.0)
     else:
         ramp = 1.0
-    target_info[:, 3] = _baseline_k * TARGET_STIFFNESS_SCALE * ramp
+    target_info[:, 3] = _baseline_k * ramp
 
     # if current_time % 0.02 < dt:
     #     print(f"t={current_time:.3f}s: left patch x={target_info[left_rows, 1]}, right patch x={target_info[right_rows, 1]}")

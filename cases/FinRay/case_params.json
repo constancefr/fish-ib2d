@@ -18,12 +18,12 @@
     "ribbon_fill_spacing": null,
     "ribbon_fill_density_multiplier": 64.0,
     "ribbon_fill_stiffness_scale": 1.0,
-    "actuation_patch_radius": null
+    "actuation_patch_radius": null,
+    "target_stiffness_factor": 15.0
   },
   "actuation": {
     "FREQUENCY": 0.1,
     "AMPLITUDE": 0.01,
-    "TARGET_STIFFNESS_SCALE": 0.2,
     "STIFFNESS_RAMP_TIME": 0.2
   }
 }

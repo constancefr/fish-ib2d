@@ -21,9 +21,9 @@ def run_one(mult, ds, wall_thickness):
     t0 = time.perf_counter()
     xLag, yLag, outlineRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys = \
         FR._Build_Tail_Geometry_Ribbon(ds, wall_thickness, fill_density_multiplier=mult)
-    connections, fill_edge_k = FR.build_Tail_Ribbon_Connections(
+    connections, edge_k = FR.build_Tail_Ribbon_Connections(
         xLag, yLag, outlineRailIdx, rayRailIdxList, ribbonPolys,
-        E_material=0.74e6, extrude_depth=0.05, fill_stiffness_scale=1.0)
+        E_material=0.74e6, extrude_depth=0.05, stiffness_scale=1.0)
     dt = time.perf_counter() - t0
 
     n_interior = sum(len(r['interior_idx']) for r in ribbonPolys)
@@ -46,8 +46,8 @@ if __name__ == "__main__":
     ds = 0.5 * (1.0 / 32)
     wall_thickness = 0.00396
 
-    print("Regression check: multiplier=0 must reproduce the sparse-truss geometry "
-          "(no 'fill' connections at all).")
+    print("multiplier=0: rails only, no interior points ('fill' springs are then "
+          "just the cross-wall triangulation edges).")
     zero = run_one(0.0, ds, wall_thickness)
 
     results = [zero] + [run_one(m, ds, wall_thickness) for m in (1.0, 4.0, 16.0, 64.0)]

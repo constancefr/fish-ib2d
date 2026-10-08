@@ -8,7 +8,7 @@ Parameter-sweep driver for the FinRay IB2d example. Configure one or more
      Tfinal, dt, ...) via regex text substitution -- comments and
      ordering in input2d are left untouched
   3. run `python FinRay_Geom.py` in a fresh subprocess to regenerate
-     .vertex/.spring/.beam/.target/.geo_connect
+     .vertex/.spring/.target/.geo_connect
   4. run `python main2d.py` in a fresh subprocess to run the simulation
   5. move the resulting viz_IB2d/ (and hier_IB2d_data/, if present) into
      a per-case results folder, alongside a copy of case_params.json and
@@ -88,16 +88,9 @@ def make_sweep():
     multipliers = [0.0, 1.0, 8.0, 32.0, 64.0]
     scales = [1.0]
 
-    combos = []
-    for mult in multipliers:
-        if mult == 0.0:
-            # ribbon_fill_stiffness_scale is meaningless with no fill points
-            # (no 'fill' springs get created at all -- see
-            # build_Tail_Ribbon_Connections) -- sweeping scale here would
-            # just rerun the identical no-fill baseline 4x.
-            combos.append((mult, scales[0]))
-        else:
-            combos.extend((mult, scale) for scale in scales)
+    # ribbon_fill_stiffness_scale now scales EVERY spring (rails included),
+    # so it matters at multiplier 0 too -- sweep it at every density.
+    combos = [(mult, scale) for mult in multipliers for scale in scales]
 
     cases = []
     for mult, scale in combos:
