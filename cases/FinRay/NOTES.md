@@ -54,7 +54,7 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 |---|---|---|
 | `geom.E_material` | 0.74e6 Pa | Young's modulus (source unknown, see §4) |
 | `geom.wall_thickness` | 3.96 mm | ribbon width (real build) |
-| `geom.extrude_depth` | 0.05 m | out-of-plane depth used in spring formula |
+| `geom.extrude_depth` | 0.027 m | real fin depth. **Not used by the simulation** (2D = per unit depth); only for scaling per-depth forces to 3D (F_3D ≈ F_2D · depth) |
 | `geom.ribbon_fill_density_multiplier` | 64 | interior points per ribbon = round(mult · area / ds²) |
 | `geom.ribbon_fill_stiffness_scale` | 1.0 | multiplies **every** spring (calibration knob α) |
 | `geom.ribbon_fill_spacing` | null → ds | Halton spacing |
@@ -63,7 +63,7 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 | `actuation.FREQUENCY` | 0.1 Hz | (code default 1.0) |
 | `actuation.AMPLITUDE` | 0.01 m | corner push in +x |
 | `actuation.STIFFNESS_RAMP_TIME` | 0.2 s | target stiffness ramps 0 → full |
-| `input2d` | `mu=1e-3, rho=1.0, dt=1e-3, Tfinal=15, Nx=Ny=32, Lx=Ly=1, supp=4` | springs=1, target_pts=1, update_target=1, beams=0 |
+| `input2d` | `mu=1e-3, rho=1000 (water), dt=5e-4, Tfinal=15, Nx=Ny=32, Lx=Ly=1, supp=4` | springs=1, target_pts=1, update_target=1, beams=0 |
 
 ## 3. Current model and why
 
@@ -88,14 +88,16 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 Every spring is an edge of one constrained triangulation per ribbon (rails + interior points; ribbons are triangulated even at multiplier 0), with
 
 ```
-k = ribbon_fill_stiffness_scale · E · extrude_depth · A_trib / L²
+k = to_ib(ribbon_fill_stiffness_scale · E · A_trib / L², ds)
+  = ribbon_fill_stiffness_scale · E · A_trib / (L² · ds)
 A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbons)
 ```
 
-- **Why**: this sets the springs' stored energy equal to the continuum strain energy of the triangles they span, so the wall's material is counted **exactly once at every density**. The previous scheme (rail springs, separate rung/diagonal cross springs, and fill springs on top) counted 175% (×1) to 234% (×64) of the real wall area, so the fin got stiffer as density rose and confounded any density study. Checked: 100% at ×0, 1, 4, 16, 64, 256.
+- **Units** (`common/ib_units.py`): `E·A_trib/L²` is the physical stiffness per unit depth [N/m per m]. IB2d is 2D (everything per unit depth) and spreads `f·ds` with the global `ds = Lx/(2Nx)`, so the value written to `finray.spring` is divided by ds. `Nx`, `Lx` are read from `case_params.json["input2d"]`. Before 2026-10-08 the formula was `α·E·extrude_depth·A_trib/L²` (no ÷ds, ×0.05 m depth): 1280× too soft (§5).
+- **Why**: this sets the springs' stored energy equal to the continuum strain energy of the triangles they span, so the wall's material is counted **exactly once at every density**. The previous scheme (rail springs, separate rung/diagonal cross springs, and fill springs on top) counted 175% (×1) to 234% (×64) of the real wall area, so the fin got stiffer as density rose and confounded any density study. Checked against the polygon areas (`verify_ribbon_fill.py`): exactly 100% at ×0-×16; ×64 gives 100.22% because the frame triangulation does not tile its polygon exactly (§4).
 - Rail springs border triangles on one side only, so they get roughly half the k of a similar interior edge. The `'frame'/'ray'/'fill'` labels are for plotting only and don't change k.
 - Spring rest length = the initial distance. `deg_NL = 1` (linear).
-- Typical values (E = 0.74 MPa, scale 1): median k ≈ 5-7e3, max 5e4-1.5e5 depending on density. The max is set by whichever thin "sliver" triangle the fill happens to create, so it is noisy.
+- Typical values (E = 0.74 MPa, scale 1, IB units): at ×64 median k ≈ 9.3e6, max 8.3e7; across densities the max is ~6e7-2e8. The max is set by whichever thin "sliver" triangle the fill happens to create, so it is noisy.
 - Two triangulation bugs were fixed in `mesh_utils` (§5). The triangulation now loses no wall area and drops no boundary segments.
 
 ### 3.4 No beams
@@ -106,24 +108,21 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
 - **Scheme** (`update_Target_Point_Positions.py`): two base-corner patches alternate. The top ("left") patch is pushed in +x by `AMPLITUDE · sin²(phase)` during the first half-cycle while the bottom patch holds still, then the roles swap. sin² gives zero velocity at both ends of each push. Target points are assigned to a patch by their rest y relative to the base midline.
 - **Patch, not a single point**: pushing one point while its neighbour across the wall stayed rigid caused an unrealistic local twist. `_actuation_patch_indices` takes every **boundary** point within `actuation_patch_radius` of each corner. Interior fill points are excluded: forcing many of them into rigid lockstep caused NaN at high density.
 - **Radius = wall_thickness, not ds**: a ds-sized radius reached a point on the *adjacent slant edge* (~13 mm away, closer than the base's own next point at ~17 mm) and caused NaN (×32 case). At the default radius the patch is exactly the 4 corner rail points at every density.
-- **Target stiffness**: `k_Target = target_stiffness_factor (15) × max over patch points of (sum of k of the springs attached to that point)`. At ×64 this gives 1.04e6.
+- **Target stiffness**: `k_Target = target_stiffness_factor (15) × max over patch points of (sum of k of the springs attached to that point)`. At ×64 this gives 1.33e9 (IB units).
   - **Why relative, not absolute**: what matters is k_Target relative to the springs it must overpower. Too low and the patch lags the prescribed motion; too high and the explicit time stepping blows up. Both limits move with E, the stiffness scale, the density and ds.
-  - **Why incident stiffness, not global max(edge_k)**: the global max swings ~3× between densities because of sliver triangles. The incident stiffness is steady: 3.5e4 at ×0/×1, 5.8e4-6.9e4 at ×4-×64.
-  - **Why 15**: it reproduces the previous effective value (1000·k_Spring × a runtime scale of 0.2 = 9.38e5 ≈ 13.5-16× incident at ×4-×64). The runtime `TARGET_STIFFNESS_SCALE` was removed so the stiffness is set in one place; the `.target` value is used as written, ramped in over `STIFFNESS_RAMP_TIME`.
+  - **Why incident stiffness, not global max(edge_k)**: the global max swings ~3× between densities because of sliver triangles. The incident stiffness is steady: 4.5e7 at ×0/×1, 7.4e7-8.8e7 at ×4-×64 (IB units; ×1280 the pre-10-08 3.5e4 and 5.8e4-6.9e4).
+  - **Why 15** (numbers in pre-10-08 units, all ×1280 now): it reproduces the previous effective value (1000·k_Spring × a runtime scale of 0.2 = 9.38e5 ≈ 13.5-16× incident at ×4-×64). The runtime `TARGET_STIFFNESS_SCALE` was removed so the stiffness is set in one place; the `.target` value is used as written, ramped in over `STIFFNESS_RAMP_TIME`.
 
 ## 4. Open issues (most important first)
 
-1. **Units and force scaling: audit before trusting any magnitudes.**
-   - *Verified*: IB2d treats every Lagrangian force as a density and spreads `f·ds` with the global `ds = Lx/(2Nx)` (`please_Find_Lagrangian_Forces_On_Eulerian_grid.py:316`). A spring constant k therefore acts physically as `k·ds`, i.e. **~64× softer** than the formula's value at Nx=32. The NACA case corrects for this (`K_phys/ds`); FinRay does not. Ratios such as k_Target / incident stiffness are unaffected.
-   - *Not verified, worth checking in the same audit*: IB2d is 2D, so its forces are per unit depth, yet the spring formula multiplies by `extrude_depth` (0.05 m). Also, `input2d` has `rho = 1.0` with `mu = 1e-3`; water would be rho = 1000.
-2. **Stiffness calibration not built.** `scale = 1` is just the formula's literal value. The planned check: a single ribbon, no fluid, one end clamped by stiff targets, a known tip force, compared with **Timoshenko** deflection `δ = FL³/(3EI) + FL/(κGA)`, κ ≈ 5/6, G = E/(2(1+ν)) with silicone's ν ≈ 0.499. Model it on `NACA0020_Wing/verify_structure.py`, which solves the static problem with IB2d's own force routines. Also: `E_material = 0.74 MPa` has no known source. The UCL Soft Robotics Materials Database (Dragon Skin 30, `Tensile-Tests-Data/Dragon Skin 30.csv`) gives E ≈ 0.44-0.45 MPa, near-linear to ~100% strain. No physical experiments are planned, so reference behaviour must come from analytical/FE models.
-3. **The current model has never been run to full length.** Every archived result in `results/` (all NaN-free through 15 s at scale 1.0, ×0-×64) dates from 2026-09-30 to 10-01, **before** the single-formula springs (10-05) and the k_Target change (10-06). The stability and zig-zag findings in §5 were made on older models too. Re-run the sweep, and repeat the turning-angle zig-zag check if anything looks off.
-4. **Poisson's ratio ceiling.** A central-force triangular lattice has an effective ν ≈ 1/3 whatever the stiffness (Cauchy relation), while silicone has ν ≈ 0.5. The scale knob can only correct the effective Young's modulus.
-5. **Thin edge triangles at high density.** Rail points stay ~ds (15 mm) apart while interior spacing shrinks (~2 mm at ×64), giving long, thin boundary triangles and sliver springs. Consider refining the rails along with the fill density.
-6. **Triangles invert under large bending**, worst at the base. The inversions are small, localised and self-correcting; pure spring networks resist inversion but can't prevent it. Options if it matters: denser or stiffer fill at the base, or an anti-inversion penalty term.
-7. **The patch radius is Euclidean, not edge-aware.** If the geometry changes (wall_thickness, rayPositions, L, W), re-check that the patch doesn't reach another edge, using the NaN check in §5.
-8. **k_Target at ×0/×1** is about half the old value (5.2e5 vs 9.4e5); check that the patch still follows the prescribed motion at low density.
-9. Minor: the docstring of `update_Target_Point_Positions.py` says stiffness is "left untouched", but it is ramped. The geometry is hard-coded (4 rays; TODOs in `_Build_Tail_Geometry_Ribbon`). The TODO comment on `fill_density_multiplier` in `FinRay_Geom()` is answered in §3.2.
+1. **Stiffness calibration not built.** `scale = 1` is just the formula's literal value (now in correct units, §3.3). The planned check: a single ribbon, no fluid, one end clamped by stiff targets, a known tip force, compared with **Timoshenko** deflection `δ = FL³/(3EI) + FL/(κGA)`, κ ≈ 5/6, G = E/(2(1+ν)) with silicone's ν ≈ 0.499. Model it on `NACA0020_Wing/verify_structure.py`, which solves the static problem with IB2d's own force routines. Also: `E_material = 0.74 MPa` has no known source. The UCL Soft Robotics Materials Database (Dragon Skin 30, `Tensile-Tests-Data/Dragon Skin 30.csv`) gives E ≈ 0.44-0.45 MPa, near-linear to ~100% strain. No physical experiments are planned, so reference behaviour must come from analytical/FE models.
+3. **Poisson's ratio ceiling.** A central-force triangular lattice has an effective ν ≈ 1/3 whatever the stiffness (Cauchy relation), while silicone has ν ≈ 0.5. The scale knob can only correct the effective Young's modulus.
+4. **Thin edge triangles at high density.** Rail points stay ~ds (15 mm) apart while interior spacing shrinks (~2 mm at ×64), giving long, thin boundary triangles and sliver springs. Consider refining the rails along with the fill density.
+5. **Triangles invert under large bending**, worst at the base. The inversions are small, localised and self-correcting; pure spring networks resist inversion but can't prevent it. Options if it matters: denser or stiffer fill at the base, or an anti-inversion penalty term.
+6. **The patch radius is Euclidean, not edge-aware.** If the geometry changes (wall_thickness, rayPositions, L, W), re-check that the patch doesn't reach another edge, using the NaN check in §5.
+7. **k_Target at ×0/×1** is about half the old value (5.2e5 vs 9.4e5, pre-10-08 units); check that the patch still follows the prescribed motion at low density.
+8. Minor: the docstring of `update_Target_Point_Positions.py` says stiffness is "left untouched", but it is ramped. The geometry is hard-coded (4 rays; TODOs in `_Build_Tail_Geometry_Ribbon`). The TODO comment on `fill_density_multiplier` in `FinRay_Geom()` is answered in §3.2.
+9. **Frame triangulation doesn't tile its polygon exactly at high density**: the triangle areas sum to 100.28% of the frame polygon at ×64 and 99.89% at ×256 (exactly 100% at ×0-×32, and for every ray). So a few triangles overlap or leave gaps, probably near segments that `_recover_loop_segments` forced back in. The effect on the material budget is small (0.2%), but overlapping triangles could also be inverted elements. `verify_ribbon_fill.py` warns when it happens.
 
 ## 5. History and verification log
 
@@ -133,6 +132,9 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
 - **2026-10-05**: single tributary-area spring formula (§3.3) replaces rail/rung/diagonal springs and `shear_Stiffness_From_Material`.
 - **2026-10-06**: beams, `k_Spring`, `k_Beam` and the beam/stiffness helpers removed; k_Target rescaled (§3.5).
 - **2026-10-08**: moved to `fish-ib2d`. The committed `finray.*` files were regenerated: they were left over from a ×32 sweep run and held the old k_Target (4.69e6, which would have been 5× too stiff once the runtime ×0.2 was removed). `run_case.py` regenerates them per case, so sweeps were never affected.
+- **2026-10-08, units fix** (`common/ib_units.py`). IB2d is 2D, so every force is per unit depth, and it spreads `f·ds` with `ds = Lx/(2Nx)`. The old spring formula `α·E·extrude_depth·A_trib/L²` had no ÷ds (64× too soft) and multiplied by the 5 cm depth (20× too soft): together **1280× too soft**, and k_Target with it. Also `rho = 1` (water is 1000). Fixed: `k = α·E·A_trib/(L²·ds)`, rho = 1000, `Nx`/`Lx` read from `case_params.json` (they were hard-coded), and `extrude_depth` = 0.027 m (the real fin) kept for force reporting only. Every spring and k_Target is now exactly 1280× its old value. The wing case now uses the same helper, and its input files are byte-identical.
+  - **Short runs** (2 s, scale 1, E 0.74 MPa): ×0 at dt 1e-3 is clean. ×64 at dt 1e-3 went NaN at t ≈ 0.22 s, just as k_Target finished ramping in; at dt 5e-4, 2.5e-4 and 1e-4 it is clean, with the same tip motion (Δ < 0.6 mm). **The default dt is now 5e-4.** Full-length stability is open issue 2.
+  - **Tip motion barely changed**: at t = 2 s the tip moves −27.4 mm (×0) and −27.6 mm (×64), against −26.7 mm in the old-units ×0 run. At 0.1 Hz and 1 cm the motion is quasi-static, so fluid loads are negligible next to the elastic forces in both versions, and the shape is set by geometry plus the prescribed base motion. The units fix will matter for forces/thrust, at higher frequency or amplitude, and for stiffness calibration (issue 1).
 
 ### Bugs found and fixed (all in git history)
 - **Attach spring → weld**: removed the stiffest element; scale = 1.0 at ×1 went from NaN at t ≈ 3.3-3.6 s to clean through 5 s.
@@ -154,6 +156,6 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
 - **NaN / divergence**: run to Tfinal, then look for `run_case.py`'s warning or `grep -i nan` the last `viz_IB2d/lagPtsConnect.*.vtk`. History: scale 1.0 and 0.5 at ×1 went NaN at t ≈ 3.3-3.6 s *before* the weld fix (0.1 and 0.01 were clean); clean after it. The ds-radius patch went NaN at ×32. The archived ×0-×64 runs at scale 1.0 are clean through 15 s (pre-10-05 model).
 - **Zig-zag (beams needed?)**: signed turning angle at every rail point, rest vs t = 15 s (E 0.74 MPa, dt 1e-3, 0.1 Hz, 1 cm), at ×0 and ×32. Max change ~1.4-1.6°, no alternating-sign sawtooth. This was run on the **rung/diagonal truss model**, so re-run it if the current model shows artefacts or if AMPLITUDE or E change substantially.
 - **Triangle inversion**: track each fill triangle's signed area against its rest sign over a run (×32, scale 1, 5 s). Frame peak 4/378 inverted, ray0 1/41 (after the rounding fix).
-- **Material budget**: the sum over springs of `k·L²/(E·depth·scale)` should equal the total ribbon area (100%).
+- **Material budget**: the sum over springs of `k·ds·L²/(E·scale)` should equal the total ribbon area (100%); `verify_ribbon_fill.py` checks it against the polygon areas.
 - **Rigid patch**: at a given phase, every row in a patch gets the identical dx (`np.allclose`).
 - **Mesh sanity**: `python verify_ribbon_fill.py` checks point-count ratio ≈ 4× per 4× multiplier and no degenerate springs.

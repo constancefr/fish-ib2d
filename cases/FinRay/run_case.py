@@ -85,7 +85,8 @@ def make_sweep():
     '''
     # multipliers = [0.0, 1.0, 4.0, 8.0]
     # scales = [0.05, 0.1, 0.3, 1.0]
-    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0]
+    multipliers = [128.0]
+    # multipliers = [0.0, 1.0, 8.0, 32.0, 64.0]
     scales = [1.0]
 
     # ribbon_fill_stiffness_scale now scales EVERY spring (rails included),

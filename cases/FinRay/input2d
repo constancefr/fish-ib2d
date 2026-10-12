@@ -8,7 +8,7 @@
 %
 Fluid_Parameters {
 mu = 0.001               % Dynamic Viscosity (N*s/m^2) 
-rho = 1.0                  % Density (kg/m^3)
+rho = 1000.0               % Density (kg/m^3), water
 }
 
 
@@ -17,7 +17,7 @@ rho = 1.0                  % Density (kg/m^3)
 %
 Temporal_Information {
 Tfinal = 15.0            % Final time of simulation (s) (initially 1.5)
-dt = 0.001             % Time-step (s)
+dt = 0.0005            % Time-step (s)
 Restart_Flag = 0        % Restart Flag (0 for no, 1 for yes)
 }
 

@@ -11,6 +11,13 @@ EI-derived torsional spring on a single centerline, which is a much closer
 approximation of how a solid silicone cross-section actually deforms. The
 legacy single-point-thick implementation is kept below (commented out) for
 reference.
+
+IB2d unit convention (important, see common/ib_units.py): IB2d is 2D, so
+every stiffness is per unit depth (span = 1 m), and the driver spreads
+`f * ds` with the global ds = Lx / (2 Nx). Spring constants are therefore
+computed per unit depth in SI units and divided by ds via to_ib(). The real
+fin's depth (geom.extrude_depth) does NOT enter the simulation: it is only
+for turning per-depth forces into rough 3D forces (F_3D ~ F_2D * depth).
 """
 
 import numpy as np
@@ -22,6 +29,7 @@ _COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 if _COMMON_DIR not in sys.path:
     sys.path.insert(0, _COMMON_DIR)
 import mesh_utils as mu
+from ib_units import ib_ds, to_ib
 
 _case_params = {}
 if os.path.exists('case_params.json'):
@@ -32,21 +40,23 @@ _geom = _case_params.get('geom', {})
 
 def FinRay_Geom():
     #-------------------------------------------------------------------
-    # Eulerian grid params (MAKE SURE MATCHES THOSE IN input2d !!!)
-    Nx = 32           # MUST BE EVEN!!!
-    Lx = 1.0          # length of grid in x-direction
-    dx = Lx / Nx      # spatial resolution
+    # Eulerian grid params, from case_params.json["input2d"] (run_case.py
+    # writes the same values into input2d); defaults match input2d.
+    _grid = _case_params.get('input2d', {})
+    Nx = int(_grid.get('Nx', 32))     # MUST BE EVEN!!!
+    Lx = float(_grid.get('Lx', 1.0))  # length of grid in x-direction
 
     #-------------------------------------------------------------------
     # Immersed structure params
-    ds = 0.5 * dx               # maximum Lagrangian point spacing (2x resolution of Eulerian grid!!!)
+    ds = ib_ds(Lx, Nx)          # = dx/2: boundary point spacing AND IB2d's force-spreading length
     struct_name = 'finray'    # name for .vertex, .spring, etc files (must match what's in 'input2d')
 
     #-------------------------------------------------------------------
     # Material properties - trying to mimick real system from dimensions and Dragon Skin 30 properties
     E_material = _geom.get('E_material', 0.74e6)
     wall_thickness = _geom.get('wall_thickness', 0.00396)   # m (3.96mm in real build)
-    extrude_depth = _geom.get('extrude_depth', 0.05)        # m
+    # extrude_depth (geom, real fin depth in m, 0.027) is not read here: the 2D
+    # model is per unit depth. Use it only to scale output forces to 3D.
 
     #-------------------------------------------------------------------
     # Halton sampling params - see fill_polygon_with_halton() + triangulate_with_holes() 
@@ -73,8 +83,7 @@ def FinRay_Geom():
     # Build springs
     connections, edge_k = build_Tail_Ribbon_Connections(
         xLag, yLag, frameRailIdx, rayRailIdxList, ribbonPolys,
-        E_material=E_material, extrude_depth=extrude_depth,
-        stiffness_scale=stiffness_scale)
+        E_material=E_material, ds=ds, stiffness_scale=stiffness_scale)
 
     #-------------------------------------------------------------------
     # Set actuation / target stiffness
@@ -258,13 +267,17 @@ def give_Me_Immersed_Boundary_Geometry(ds, Nx):
     return xLag, yLag
 
 def build_Tail_Ribbon_Connections(xLag, yLag, frameRailIdx, rayRailIdxList,
-                                   ribbonPolys, E_material, extrude_depth,
+                                   ribbonPolys, E_material, ds,
                                    stiffness_scale=1.0):
     '''
     Builds every spring of the ribboned structure from ONE triangulated mesh
     per ribbon, and gives every spring the same tributary-area stiffness:
 
-        k = stiffness_scale * E * depth * A_tributary / L**2
+        k = to_ib(stiffness_scale * E * A_tributary / L**2, ds)
+          = stiffness_scale * E * A_tributary / (L**2 * ds)
+
+    i.e. a physical stiffness per unit depth [N/m per m], divided by IB2d's
+    force-spreading length ds (see module docstring / common/ib_units.py).
 
     A_tributary is 1/3 of the area of each triangle sharing that edge
     (summed over every ribbon the edge belongs to -- e.g. a frame inner-rail
@@ -360,7 +373,7 @@ def build_Tail_Ribbon_Connections(xLag, yLag, frameRailIdx, rayRailIdxList,
     edge_k = {}
     for pair, A in edge_area.items():
         L = float(np.hypot(xLag[pair[0]] - xLag[pair[1]], yLag[pair[0]] - yLag[pair[1]]))
-        edge_k[pair] = stiffness_scale * E_material * extrude_depth * A / max(L ** 2, 1e-30)
+        edge_k[pair] = to_ib(stiffness_scale * E_material * A / max(L ** 2, 1e-30), ds)
 
     return connections, edge_k
 
