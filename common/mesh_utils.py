@@ -38,45 +38,18 @@ def closed_path(loop):
     return _MplPath(np.vstack([loop, loop[:1]]), closed=True)
 
 
-# --- Point-to-polyline projection (for welding one ribbon to another) -------
-
-def project_point_to_polyline(p, polyline, closed=True):
+def resample_loop(loop, spacing):
     '''
-    The closest point to p that lies ON the polyline itself (not just on one
-    of its vertices) -- e.g. for finding where a ray ribbon's edge actually
-    meets the outline ribbon's boundary, instead of snapping to whichever
-    existing discretized boundary point happens to be nearest.
-
-    p: (2,) query point
-    polyline: (n,2) ordered vertices
-    closed: True if the last vertex implicitly connects back to the first
-
-    Returns (foot_xy, seg_idx, t):
-      foot_xy: the closest point on the polyline
-      seg_idx: index i such that foot_xy lies on the segment
-          polyline[i] -> polyline[(i+1) % n]
-      t: how far along that segment, in [0, 1] (0 = polyline[seg_idx],
-          1 = polyline[(seg_idx+1) % n])
+    Points every ~spacing along a closed polygon (first vertex NOT repeated),
+    keeping its vertices: each side gets max(1, round(length / spacing))
+    equal segments.
     '''
-    p = np.asarray(p, dtype=float)
-    polyline = np.asarray(polyline, dtype=float)
-    n = len(polyline)
-    stop = n if closed else n - 1
-
-    best_d2 = np.inf
-    best = None
-    for i in range(stop):
-        a = polyline[i]
-        b = polyline[(i + 1) % n]
-        ab = b - a
-        denom = np.dot(ab, ab)
-        t = 0.0 if denom < 1e-30 else float(np.clip(np.dot(p - a, ab) / denom, 0.0, 1.0))
-        foot = a + t * ab
-        d2 = float(np.dot(p - foot, p - foot))
-        if d2 < best_d2:
-            best_d2 = d2
-            best = (foot, i, t)
-    return best
+    loop = np.asarray(loop, dtype=float)
+    out = []
+    for a, b in zip(loop, np.roll(loop, -1, axis=0)):
+        n = max(1, round(np.linalg.norm(b - a) / spacing))
+        out += [a + (b - a) * k / n for k in range(n)]
+    return np.array(out)
 
 
 # --- Interior fill sampler ---------------------------------------------------

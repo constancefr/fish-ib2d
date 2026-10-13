@@ -15,7 +15,7 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 ## 1. Repository context
 
 - **Repo**: `fish-ib2d/` (local; not yet pushed). Moved here on 2026-10-08 from a fork of IB2d (`constancefr/IB2d`, `pyIB2d/Examples/FinRay`); all commits were carried over with rewritten paths.
-- **Layout**: `cases/FinRay/` (this case), `cases/NACA0020_Wing/`, `common/mesh_utils.py` (shape-agnostic Halton fill + constrained Delaunay via meshpy/Triangle), `external/IB2d/` (upstream `nickabattista/IB2d`, git submodule pinned at `a5136ac`, **unmodified**).
+- **Layout**: `cases/FinRay/` (this case), `cases/NACA0020_Wing/`, `common/mesh_utils.py` (shape-agnostic Halton fill + constrained Delaunay via meshpy/Triangle), `common/run_records.py` (run records + results index), `external/IB2d/` (upstream `nickabattista/IB2d`, git submodule pinned at `a5136ac`, **unmodified**).
 - **Paths**: `main2d.py` and `FinRay_Geom.py` locate `external/IB2d/pyIB2d/IBM_Blackbox` and `common/` relative to their own file (`_REPO_ROOT` / `_COMMON_DIR`). Run every script **from inside `cases/FinRay/`**: IB2d reads `input2d` and `finray.*` from the current directory.
 - **Python**: use `/opt/miniconda3/envs/ib2d/bin/python` (numpy, scipy, matplotlib, meshpy, numba, vtk, pyfftw). The system `python3` has no numpy. IB2d's solver requires numba.
 - **Outputs**: `results/`, `viz_IB2d/`, `hier_IB2d_data/`, `*.mp4` are gitignored. The archived sweep results (~1.8 GB, 2026-09-30 to 10-01) were left in the old fork folder `ib2d_sim/IB2d/pyIB2d/Examples/FinRay/results/`.
@@ -25,8 +25,15 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 
 **Sweep driver: `run_case.py`**
 1. Loads `case_params.json` as `BASE_CASE`; `make_sweep()` varies `ribbon_fill_density_multiplier` over `[0, 1, 8, 32, 64]` × `ribbon_fill_stiffness_scale` over `[1.0]`.
-2. For each case: writes `case_params.json`, patches `input2d` values by regex, runs `FinRay_Geom.py` then `main2d.py` **as subprocesses** (needed: `update_Target_Point_Positions.py` caches its baseline in module globals), moves outputs to `results/<case_name>/` with copies of `case_params.json` and `input2d`.
-3. Flags (does not skip) any case whose last `lagPtsConnect.*.vtk` contains NaN.
+2. For each case: writes `case_params.json`, patches `input2d` values by regex, runs `FinRay_Geom.py` then `main2d.py` **as subprocesses** (needed: `update_Target_Point_Positions.py` caches its baseline in module globals), moves outputs to a new folder `results/<case_name>_<YYYYmmdd-HHMMSS>/` (a rerun never overwrites an earlier run) with copies of `case_params.json` and `input2d`.
+3. Writes that folder's **`run_info.json`**, the record of the run (`common/run_records.py`):
+   - `inputs`: `geom` and `actuation` from `case_params.json`, plus every `input2d` value IB2d read.
+   - `mesh`: from `mesh_info.json`, which `FinRay_Geom.py` writes each time it runs (gitignored): ds, fill spacing, multiplier, edge spacing, edge/fill points (fill requested and placed), points, triangles, springs, median/max k, k_Target, patch points, tail area, meshed-area fraction, build time.
+   - `timing`: start/end, geometry and simulation wall time, steps, ms per step.
+   - `outcome`: `completed` / `diverged` / `incomplete` / `no output`, first NaN time, last output time, exit code. A diverged case is flagged, not skipped.
+   - `provenance`, captured at launch: commit, branch, IB2d submodule commit, package versions, machine. With uncommitted changes, the full diff (plus small untracked files) is saved as `code.diff` in the run folder, so quick tests before a commit stay reproducible.
+4. After the sweep (even if a case crashed), rebuilds **`results/index.csv`**: one row per `run_info.json`, every field a column (`inputs.geom.E_material`, `mesh.n_fill_points`, `outcome.first_nan_time`, ...). Generated, never edited by hand: rebuild with `python ../../common/run_records.py index results`.
+5. Runs made before records existed: `python ../../common/run_records.py backfill <run folder>...` writes a record from the folder's `case_params.json`/`input2d` and its output (mesh and code version unknown; start and wall time estimated from file modification times, dropped if the folder was copied). Done on 2026-10-13 for `results/`, `results_approach1/` and `old_results/FinRay_results_0/` (one folder there skipped: no `input2d`).
 
 **Geometry: `FinRay_Geom.py` → `FinRay_Geom()`**
 1. Parameters: grid (`Nx=32, Lx=1` → `dx=1/32`, `ds=dx/2=15.625 mm`), material and fill settings from `case_params.json["geom"]` (defaults in code).
@@ -139,6 +146,7 @@ A_trib = 1/3 of the area of every triangle sharing the edge
   - **Tip motion barely changed**: at t = 2 s the tip moves −27.4 mm (×0) and −27.6 mm (×64), against −26.7 mm in the old-units ×0 run. At 0.1 Hz and 1 cm the motion is quasi-static, so fluid loads are negligible next to the elastic forces in both versions, and the shape is set by geometry plus the prescribed base motion. The units fix will matter for forces/thrust, at higher frequency or amplitude, and for stiffness calibration (issue 1).
 - **2026-10-12, `mesh_utils` trimmed** (branch `approach1_trimmed`). Halton fill: scipy `qmc.Halton` replaces the hand-written sequence, a plain x/y sampling box replaces the PCA-oriented one, one distance helper replaces three, and the batch-doubling loop is gone. Same point counts and inside/gap rules, but different point positions. Triangulation: Triangle via `meshpy` replaces scipy Delaunay + the hand-written segment recovery (see the bug list), giving exactly 100% area at every density. `mesh_utils.py` went from 464 to 195 lines.
 - **2026-10-13, single mesh** (branch `approach2`). The tail is now one polygon with 5 window holes (`_tail_outline`), with edge points every h = ds/√mult (`mu.resample_loop`), one Halton fill and one triangulation. This replaces the 5 separate ribbons, `_offset_polyline`, rail welding (`weld_to_inner_rail`, `mu.project_point_to_polyline`), `_n_points_for_length` and the per-ribbon spring merge. It closes the old open issue "thin edge triangles at high density". Effects: more points (×128: 1489 vs 954), the actuation patch grows with density, sharp tip (+1.5% area). `FinRay_Geom.py` went from 623 to 340 lines.
+- **2026-10-13, run records**. Each run gets its own timestamped folder and a `run_info.json` (inputs, mesh metrics, timing, outcome, code version + `code.diff`), and `results/index.csv` is generated from those (§2). Older runs backfilled.
 
 ### Bugs found and fixed (all in git history)
 - **Attach spring → weld**: removed the stiffest element; scale = 1.0 at ×1 went from NaN at t ≈ 3.3-3.6 s to clean through 5 s.

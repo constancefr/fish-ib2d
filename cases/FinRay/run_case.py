@@ -11,8 +11,11 @@ Parameter-sweep driver for the FinRay IB2d example. Configure one or more
      .vertex/.spring/.target/.geo_connect
   4. run `python main2d.py` in a fresh subprocess to run the simulation
   5. move the resulting viz_IB2d/ (and hier_IB2d_data/, if present) into
-     a per-case results folder, alongside a copy of case_params.json and
-     input2d, for provenance
+     a new folder results/<case_name>_<YYYYmmdd-HHMMSS>/, alongside a copy
+     of case_params.json and input2d
+  6. write that folder's run_info.json (inputs, mesh metrics, timing,
+     outcome, code version; see common/run_records.py), and after the
+     sweep rebuild results/index.csv, one row per run
 
 WHY SUBPROCESSES ---
 update_Target_Point_Positions.py caches its baseline corner positions in
@@ -32,7 +35,12 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import run_records as rr
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EXAMPLE_DIR / "results"
@@ -71,17 +79,16 @@ def make_sweep():
     '''
     2D sweep over ribbon_fill_density_multiplier x ribbon_fill_stiffness_scale,
     everything else held fixed at BASE_CASE. Each case is named
-    "mult<M>_scale<S>" and lands in results/mult<M>_scale<S>/ (see run_case()),
-    so results from different (multiplier, scale) combinations never collide
-    or overwrite each other.
+    "mult<M>_scale<S>" and lands in its own timestamped folder
+    results/mult<M>_scale<S>_<YYYYmmdd-HHMMSS>/ (see run_case()), so no run
+    ever overwrites another.
 
     NOTE (see NOTES.md): scale=1.0 (the fill-stiffness formula's literal,
     uncalibrated value) is known to go NaN by t~3.3-3.6s at
     ribbon_fill_density_multiplier=1.0 -- higher multipliers add more,
     similarly-stiff springs and are expected to be *more* prone to this, not
-    less. run_case() below flags (but does not skip) any case whose final
-    output frame contains NaN, so a blown-up case is obvious without having
-    to manually inspect each results/ folder.
+    less. run_case() below flags (but does not skip) any case that went NaN,
+    and records when (run_info.json, results/index.csv).
     '''
     # multipliers = [0.0, 1.0, 4.0, 8.0]
     # scales = [0.05, 0.1, 0.3, 1.0]
@@ -134,7 +141,20 @@ def patch_input2d(values: dict):
 
 # --- Run one case
 def run_case(case: dict):
-    print(f"\n=== Running case: {case['case_name']} ===")
+    '''
+    Runs one case into its own new folder results/<case_name>_<YYYYmmdd-HHMMSS>/
+    (never overwrites an earlier run) and writes its run_info.json there:
+    inputs, mesh metrics, timing, outcome, and the code version (commit,
+    plus code.diff if the tree had uncommitted changes). See
+    common/run_records.py.
+    '''
+    start = datetime.now()
+    run_id = f"{case['case_name']}_{start:%Y%m%d-%H%M%S}"
+    case_dir = RESULTS_DIR / run_id
+    case_dir.mkdir(parents=True)
+    print(f"\n=== Running case: {run_id} ===")
+    # code version as it is at launch (edits made while a sweep runs don't count)
+    code = rr.provenance(EXAMPLE_DIR, case_dir / "code.diff")
 
     # a) write case_params.json (read by FinRay_Geom.py and
     #    update_Target_Point_Positions.py)
@@ -144,61 +164,71 @@ def run_case(case: dict):
     # b) patch input2d
     patch_input2d(case["input2d"])
 
-    # c) regenerate geometry/input files
+    # c) regenerate geometry/input files (also writes mesh_info.json)
     env = dict(os.environ, MPLBACKEND="Agg") # Agg backend so that plt.show() is a no-op and doesn't block
+    t0 = time.perf_counter()
     subprocess.run([sys.executable, "FinRay_Geom.py"], cwd=EXAMPLE_DIR, env=env, check=True)
+    t_geom = time.perf_counter() - t0
 
     # d) run the simulation (fresh subprocess)
-    subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR, check=True)
+    t0 = time.perf_counter()
+    sim = subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR)
+    t_sim = time.perf_counter() - t0
 
     # e) archive results
-    case_dir = RESULTS_DIR / case["case_name"]
-    case_dir.mkdir(parents=True, exist_ok=True)
     for folder in ("viz_IB2d", "hier_IB2d_data"):
         src = EXAMPLE_DIR / folder
         if src.exists():
-            dest = case_dir / folder
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.move(str(src), str(dest))
+            shutil.move(str(src), str(case_dir / folder))
     shutil.copy(params_path, case_dir / "case_params.json")
     shutil.copy(EXAMPLE_DIR / "input2d", case_dir / "input2d")
 
-    if _final_frame_has_nan(case_dir):
-        print(f"=== WARNING: {case['case_name']} diverged (NaN in its final "
-              f"output frame) -- results in {case_dir} are not usable ===")
+    # f) run record
+    inp = rr.read_input2d(case_dir / "input2d")
+    n_steps = round(inp["Tfinal"] / inp["dt"])
+    info = dict(
+        run_id=run_id,
+        case_name=case["case_name"],
+        inputs=rr.inputs(case, inp),
+        mesh=json.loads((EXAMPLE_DIR / "mesh_info.json").read_text()),
+        timing=dict(start=start.isoformat(timespec="seconds"),
+                    end=datetime.now().isoformat(timespec="seconds"),
+                    geometry_wall_time_s=round(t_geom, 1),
+                    sim_wall_time_s=round(t_sim, 1),
+                    n_steps=n_steps,
+                    sim_time_per_step_ms=round(1e3 * t_sim / n_steps, 2)),
+        outcome=dict(rr.outcome(case_dir / "viz_IB2d", inp["dt"], inp["print_dump"], inp["Tfinal"]),
+                     exit_code=sim.returncode),
+        provenance=code,
+    )
+    rr.write_run_info(case_dir, info)
+
+    status = info["outcome"]["status"]
+    if status == "diverged":
+        print(f"=== WARNING: {run_id} diverged (NaN from t = "
+              f"{info['outcome']['first_nan_time']:.2f} s) -- see {case_dir} ===")
     else:
-        print(f"=== Done: results in {case_dir} ===")
+        print(f"=== {status}: results in {case_dir} ===")
+    if sim.returncode:
+        raise subprocess.CalledProcessError(sim.returncode, "main2d.py")
     return case_dir
 
 
-def _final_frame_has_nan(case_dir):
-    '''
-    Cheap divergence check: does the *last* lagPtsConnect.*.vtk frame
-    contain "nan"? A spring-force divide-by-zero (two points colliding)
-    poisons position/velocity data from that point on but does not raise an
-    exception or a nonzero exit code, so a diverged run otherwise looks
-    identical to a healthy one until you open the output by hand -- see
-    NOTES.md for how this was first found (ribbon_fill_stiffness_scale=1.0
-    going NaN partway through a run).
-    '''
-    frames = sorted((case_dir / "viz_IB2d").glob("lagPtsConnect.*.vtk"))
-    if not frames:
-        return False
-    return "nan" in frames[-1].read_text().lower()
-
-
 def main():
-    for case in make_sweep():
-    # for case in [BASE_CASE]:    # for initial testing
-        case_dir = run_case(case)
+    try:
+        for case in make_sweep():
+        # for case in [BASE_CASE]:    # for initial testing
+            case_dir = run_case(case)
 
-        # Optional: chain straight into VisIt for a movie per case.
-        # movie_path = case_dir / f"{case['case_name']}.mp4"
-        # subprocess.run([
-        #     "visit", "-cli", "-nowin", "-s", str(EXAMPLE_DIR / "make_movie.py"),
-        #     "--", str(case_dir), str(movie_path),
-        # ], check=True)
+            # Optional: chain straight into VisIt for a movie per case.
+            # movie_path = case_dir / f"{case['case_name']}.mp4"
+            # subprocess.run([
+            #     "visit", "-cli", "-nowin", "-s", str(EXAMPLE_DIR / "make_movie.py"),
+            #     "--", str(case_dir), str(movie_path),
+            # ], check=True)
+    finally:
+        # rebuilt even if a case crashed, so finished runs are always listed
+        print(f"\nIndex: {rr.write_index(RESULTS_DIR)}")
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ for turning per-depth forces into rough 3D forces (F_3D ~ F_2D * depth).
 
 import numpy as np
 import matplotlib.pyplot as plt
-import json, os, sys
+import json, os, sys, time
 
 _COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'common')
 if _COMMON_DIR not in sys.path:
@@ -75,7 +75,8 @@ def FinRay_Geom():
 
     #-------------------------------------------------------------------
     # Build the mesh: one outline, one fill, one triangulation
-    xLag, yLag, triangles, n_boundary, baseCornerIdx, _, _ = \
+    t_start = time.perf_counter()
+    xLag, yLag, triangles, n_boundary, baseCornerIdx, outer, windows = \
         _Build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier)
 
     #-------------------------------------------------------------------
@@ -93,6 +94,29 @@ def FinRay_Geom():
 
     target_stiffness_factor = _geom.get('target_stiffness_factor', 15.0)
     k_Target = target_stiffness_factor * _max_incident_stiffness(target_indices, edge_k)
+    build_time = time.perf_counter() - t_start
+
+    #-------------------------------------------------------------------
+    # Mesh metrics for the run record (run_case.py copies them into run_info.json)
+    tail_area = mu._shoelace_area(outer) - sum(mu._shoelace_area(w) for w in windows)
+    x, y = xLag[triangles], yLag[triangles]
+    mesh_area = 0.5 * np.abs((x[:, 1] - x[:, 0]) * (y[:, 2] - y[:, 0])
+                             - (x[:, 2] - x[:, 0]) * (y[:, 1] - y[:, 0])).sum()
+    k = np.array(list(edge_k.values()))
+    mesh_info = dict(
+        ds=ds, fill_spacing=fill_spacing, fill_density_multiplier=fill_density_multiplier,
+        edge_spacing=fill_spacing / np.sqrt(max(fill_density_multiplier, 1.0)),
+        n_edge_points=n_boundary,
+        n_fill_points_requested=int(round(fill_density_multiplier * tail_area / fill_spacing ** 2)),
+        n_fill_points=len(xLag) - n_boundary,
+        n_points=len(xLag), n_triangles=len(triangles), n_springs=len(connections),
+        k_median=float(np.median(k)), k_max=float(k.max()),
+        n_target_points=len(target_indices), k_Target=k_Target,
+        tail_area_m2=tail_area, mesh_area_fraction=mesh_area / tail_area,
+        build_time_s=round(build_time, 3),
+    )
+    with open('mesh_info.json', 'w') as f:
+        json.dump(mesh_info, f, indent=2)
 
     #-------------------------------------------------------------------
     # Plot geometry to test
