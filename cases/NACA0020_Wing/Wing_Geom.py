@@ -30,7 +30,7 @@ Structural model (see NOTES.md for the full GVS -> IB2d mapping):
 IB2d unit convention (important): the driver spreads `f * ds` with the
 *global* ds = Lx / (2 Nx), so a physical nodal force F [N per unit depth]
 needs f = F / ds. Every stiffness below is therefore computed in physical
-units and divided by ds via to_ib().
+units and divided by ds via to_ib() (common/ib_units.py).
 """
 
 import json
@@ -40,7 +40,9 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'common'))
 import wing_case
+from ib_units import ib_ds, to_ib
 
 CHORD = 0.2   # m; the thickness fit below is only valid for this chord
 
@@ -56,11 +58,6 @@ def thickness(xp):
     w = 0.4 * (0.0322 * five_x**3 - 0.0333 * np.cbrt(five_x) - 0.1269 * five_x**2
                + 0.3797 * np.sqrt(five_x) - 0.2518 * five_x)
     return np.maximum(w, 0.0)
-
-
-def to_ib(K_phys, ds):
-    '''Physical stiffness [N/m per unit depth] -> IB2d spring/target constant.'''
-    return K_phys / ds
 
 
 def bend_k(EI, s, ds):
@@ -112,7 +109,7 @@ def build_wing(params=None, Nx=None, Lx=None, bent=True):
     g = (params or wing_case.load_case_params()).get('geom', {})
     Nx = Nx if Nx is not None else int(wing_case.read_input2d('Nx'))
     Lx = Lx if Lx is not None else wing_case.read_input2d('Lx')
-    ds = Lx / (2.0 * Nx)          # IB2d's global Lagrangian spacing (hard-coded in the driver)
+    ds = ib_ds(Lx, Nx)            # IB2d's global Lagrangian spacing (hard-coded in the driver)
 
     E = g.get('E_flex', 1.0e4)
     span = g.get('span', 1.0)
