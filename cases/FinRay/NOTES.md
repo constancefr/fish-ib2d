@@ -30,17 +30,17 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 
 **Geometry: `FinRay_Geom.py` → `FinRay_Geom()`**
 1. Parameters: grid (`Nx=32, Lx=1` → `dx=1/32`, `ds=dx/2=15.625 mm`), material and fill settings from `case_params.json["geom"]` (defaults in code).
-2. `_Build_Tail_Geometry_Ribbon()`:
-   1. Triangle centerline (base → top edge → tip → bottom edge), point counts from `_n_points_for_length()`.
-   2. `_offset_polyline(closed=True)` → frame rails A/B; `mu.closed_path(...).contains_point` decides which is exterior.
-   3. `baseCornerIdx` = 2 base corners × 2 rails (actuation seeds).
-   4. For each of 4 rays: centerline → `_offset_polyline(closed=False)` → each of the 4 rail endpoints welded into the frame's inner rail by `weld_to_inner_rail()` (via `mu.project_point_to_polyline`; reuses a vertex within 2% of a segment end, otherwise splices a new point into the inner rail **and** a partner point into the outer rail) → ring polygon → `mu.fill_polygon_with_halton()` interior points.
-   5. Frame interior: `mu.fill_polygon_with_halton(exterior, inner_loops=[inner])`.
-   6. Returns `xLag, yLag, frameRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys`. Note `weld_to_inner_rail` mutates the frame rail index lists in place.
-3. `build_Tail_Ribbon_Connections()`: rail-chain springs (dedupe self-loops/duplicates from welding) → `mu.triangulate_with_holes()` per ribbon → tributary area per edge → error if any rail segment isn't a triangulation edge → remaining edges added as `'fill'` → `edge_k`.
-4. Preview plot → `geometry_preview.png`.
-5. Writes `finray.vertex`, `finray.geo_connect`, `finray.spring`.
-6. `_actuation_patch_indices()` → `k_Target` from `_max_incident_stiffness()` → `finray.target`.
+2. `_Build_Tail_Mesh()` meshes the whole tail **once**:
+   1. `_tail_outline()`: the tail as one polygon with 5 holes. `outer` = outer outline (a triangle); `windows` = the 5 open windows between base, rays and tip (4 trapezoids + 1 triangle). Built analytically from the half-width of the slanted edges moved by ±wall_thickness/2.
+   2. Edge points: `mu.resample_loop()` puts points every ~h along `outer` and every window, keeping the corners, with `h = fill_spacing / sqrt(max(mult, 1))` = the fill's mean spacing.
+   3. Fill: `mu.fill_polygon_with_halton(outer, inner_loops=windows)`, the whole tail in one call.
+   4. `mu.triangulate_with_holes()`, once over all points (edge points first, then fill).
+   5. `baseCornerIdx` = the 4 base corner points (outer and inner, bottom and top), found by coordinate.
+   6. Returns `xLag, yLag, triangles, n_boundary, baseCornerIdx, outer, windows`.
+3. `build_Tail_Connections()`: one spring per triangle edge, tributary-area `edge_k`; kind `'boundary'` (edge borders one triangle) or `'fill'`, for plotting only.
+4. `_actuation_patch_indices()` → `k_Target` from `_max_incident_stiffness()`.
+5. Preview plot → `geometry_preview.png` (edges, fill points, actuation patches as red stars).
+6. Writes `finray.vertex`, `finray.geo_connect`, `finray.spring`, `finray.target`.
 
 **Simulation: `main2d.py`** reads `input2d`, calls IB2d's `IBM_Driver`, which calls `update_Target_Point_Positions()` every step.
 
@@ -53,9 +53,9 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 | Key | Value | Meaning |
 |---|---|---|
 | `geom.E_material` | 0.74e6 Pa | Young's modulus (source unknown, see §4) |
-| `geom.wall_thickness` | 3.96 mm | ribbon width (real build) |
+| `geom.wall_thickness` | 3.96 mm | wall width (real build) |
 | `geom.extrude_depth` | 0.027 m | real fin depth. **Not used by the simulation** (2D = per unit depth); only for scaling per-depth forces to 3D (F_3D ≈ F_2D · depth) |
-| `geom.ribbon_fill_density_multiplier` | 64 | interior points per ribbon = round(mult · area / ds²) |
+| `geom.ribbon_fill_density_multiplier` | 64 | fill points = round(mult · tail area / ds²); edge points every ds/√mult |
 | `geom.ribbon_fill_stiffness_scale` | 1.0 | multiplies **every** spring (calibration knob α) |
 | `geom.ribbon_fill_spacing` | null → ds | Halton spacing |
 | `geom.actuation_patch_radius` | null → wall_thickness | actuation patch radius |
@@ -68,36 +68,37 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 ## 3. Current model and why
 
 ### 3.1 Geometry
-- Triangle: length `L=0.136`, base width `W=0.051`, base at `x0=0.3`, centred on `y0=0.5`, tip pointing +x. Four rays parallel to the base at 25, 47, 69, 91 mm from it. All hard-coded in `_Build_Tail_Geometry_Ribbon` (TODO there: make these parameters).
-- **Every edge is a 2-rail ribbon** of width `wall_thickness`, not a 1-point-thick line. This lets bending stiffness come from the material in the wall (one rail stretches while the other compresses) instead of a separately calibrated bending spring. `_offset_polyline` uses mitered normals, with the miter clamped (cos ≥ 0.25) so the tip doesn't spike.
-- **Rays are welded to the frame** (shared vertices), not attached by a separate spring. The old `'attach'` spring (k = 50·k_Spring) was the stiffest element in the model and caused NaN. When a weld splices a point into the inner rail, it also splices a partner point into the outer rail; without it, springs that pair the two rails by array index connected the wrong points.
-- **Boundary point counts** come from `_n_points_for_length`: round to the nearest number of *segments*, then points = segments + 1. Rounding the point count directly left base and ray segments at up to 214% of ds. Segments are now 70-124% of ds.
+- Triangle: length `L=0.136`, base width `W=0.051`, base at `x0=0.3`, centred on `y0=0.5`, tip pointing +x. Four rays parallel to the base at 25, 47, 69, 91 mm from it. All hard-coded in `_tail_outline` (TODO there: make these parameters).
+- **The tail is one polygon with holes**: every wall (frame edges and rays) is `wall_thickness` wide, centred on its centerline, and the 5 open windows are the holes. Bending stiffness comes from the material in the wall (one side stretches while the other compresses) instead of a separately calibrated bending spring.
+- **One mesh, no welding.** Rays and frame are meshed together, so the joints are meshed through like any other part of the wall. Before 2026-10-13 each ray was a separate ribbon welded to the frame by shared points (§5), which left each joint as a single ~4 mm edge with one triangle on each side.
+- **Sharp corners**: the outline is the exact offset of the centerline triangle, so the outer tip is 10.7 mm past the centerline tip. The old ribbon code clamped the miter (≈7.9 mm). Tail area 1697.4 mm² (old: 1672.3).
 
 ### 3.2 Interior fill (Halton)
-- Per ribbon: `n = round(multiplier · ribbon_area / ds²)`. This answers the TODO in `FinRay_Geom()`: the multiplier scales the *area density*, and multiplier 1 means "one point per ds² of area". Because the ribbons are thin relative to ds, low multipliers give very few points:
+- Whole tail: `n = round(multiplier · tail_area / ds²)` fill points, i.e. multiplier 1 = one point per ds² of area. Edge points are spaced `h = ds/√multiplier` (ds at ×0/×1), the same as the fill's mean spacing, so edge and interior are equally dense:
 
-  | multiplier | 0 | 1 | 4 | 8 | 16 | 32 | 64 |
-  |---|---|---|---|---|---|---|---|
-  | fill points | 0 | 6 | 27 | 56 | 109 | 220 | 439 |
-  | total Lagrangian points | 78 | 84 | 105 | 134 | 187 | 298 | 517 |
+  | multiplier | 0 | 1 | 4 | 8 | 16 | 32 | 64 | 128 |
+  |---|---|---|---|---|---|---|---|---|
+  | edge points | 51 | 51 | 105 | 146 | 211 | 301 | 420 | 599 |
+  | fill points | 0 | 7 | 28 | 56 | 111 | 222 | 445 | 890 |
+  | total Lagrangian points | 51 | 58 | 133 | 202 | 322 | 523 | 865 | 1489 |
 
-  Ribbon areas: frame 1281.9 mm², rays 147.6 / 110.8 / 82.4 / 49.7 mm².
-- The rail (boundary) spacing stays at ~ds regardless of the multiplier (see §4, thin edge triangles).
+- Mesh quality (×8 and up): no triangle under 5°, longest edge ≈ 1.8 h (3.5 mm at ×64). The old per-ribbon mesh had 7-8% of triangles under 5° and edges up to 23 mm, because its rails stayed at ~ds while the fill got denser.
+- Fill points keep `min_boundary_gap` (≈0.5 mm) from every edge, so none lands almost on an edge segment.
 
 ### 3.3 Springs: one formula for all
-Every spring is an edge of one constrained triangulation per ribbon (rails + interior points; ribbons are triangulated even at multiplier 0), with
+Every spring is an edge of the tail's single constrained triangulation (edge + fill points; also at multiplier 0), with
 
 ```
 k = to_ib(ribbon_fill_stiffness_scale · E · A_trib / L², ds)
   = ribbon_fill_stiffness_scale · E · A_trib / (L² · ds)
-A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbons)
+A_trib = 1/3 of the area of every triangle sharing the edge
 ```
 
 - **Units** (`common/ib_units.py`): `E·A_trib/L²` is the physical stiffness per unit depth [N/m per m]. IB2d is 2D (everything per unit depth) and spreads `f·ds` with the global `ds = Lx/(2Nx)`, so the value written to `finray.spring` is divided by ds. `Nx`, `Lx` are read from `case_params.json["input2d"]`. Before 2026-10-08 the formula was `α·E·extrude_depth·A_trib/L²` (no ÷ds, ×0.05 m depth): 1280× too soft (§5).
 - **Why**: this sets the springs' stored energy equal to the continuum strain energy of the triangles they span, so the wall's material is counted **exactly once at every density**. The previous scheme (rail springs, separate rung/diagonal cross springs, and fill springs on top) counted 175% (×1) to 234% (×64) of the real wall area, so the fin got stiffer as density rose and confounded any density study. Checked against the polygon areas (`verify_ribbon_fill.py`): exactly 100% at every density (×0-×256) since the switch to meshpy (§5).
-- Rail springs border triangles on one side only, so they get roughly half the k of a similar interior edge. The `'frame'/'ray'/'fill'` labels are for plotting only and don't change k.
+- Outline springs border a triangle on one side only, so they get roughly half the k of a similar interior edge. The `'boundary'/'fill'` labels are for plotting only and don't change k.
 - Spring rest length = the initial distance. `deg_NL = 1` (linear).
-- Typical values (E = 0.74 MPa, scale 1, IB units): at ×64 median k ≈ 9.3e6, max 8.3e7; across densities the max is ~6e7-2e8. The max is set by whichever thin "sliver" triangle the fill happens to create, so it is noisy.
+- Typical values (E = 0.74 MPa, scale 1, IB units): median k ≈ 1.0e7 from ×8 up (4e6-7e6 at ×0-×4); max 7e7-1.5e8 across densities.
 - The triangulation is Triangle's constrained Delaunay (via `meshpy`, §5): it keeps every boundary segment, adds no points, and loses no wall area.
 
 ### 3.4 No beams
@@ -106,9 +107,9 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
 
 ### 3.5 Actuation
 - **Scheme** (`update_Target_Point_Positions.py`): two base-corner patches alternate. The top ("left") patch is pushed in +x by `AMPLITUDE · sin²(phase)` during the first half-cycle while the bottom patch holds still, then the roles swap. sin² gives zero velocity at both ends of each push. Target points are assigned to a patch by their rest y relative to the base midline.
-- **Patch, not a single point**: pushing one point while its neighbour across the wall stayed rigid caused an unrealistic local twist. `_actuation_patch_indices` takes every **boundary** point within `actuation_patch_radius` of each corner. Interior fill points are excluded: forcing many of them into rigid lockstep caused NaN at high density.
-- **Radius = wall_thickness, not ds**: a ds-sized radius reached a point on the *adjacent slant edge* (~13 mm away, closer than the base's own next point at ~17 mm) and caused NaN (×32 case). At the default radius the patch is exactly the 4 corner rail points at every density.
-- **Target stiffness**: `k_Target = target_stiffness_factor (15) × max over patch points of (sum of k of the springs attached to that point)`. At ×64 this gives 1.33e9 (IB units).
+- **Patch, not a single point**: pushing one point while its neighbour across the wall stayed rigid caused an unrealistic local twist. `_actuation_patch_indices` takes every **edge** point (index < `n_boundary`) within `actuation_patch_radius` of each corner, plus the 4 corner points. Fill points are excluded: forcing many of them into rigid lockstep caused NaN at high density.
+- **Radius = wall_thickness, not ds**: a ds-sized radius reached a point on the *adjacent slant edge* (~13 mm away, closer than the base's own next point at ~17 mm) and caused NaN (×32 case). Since edge points now refine with density, the patch grows with it (same contact area): 4 points at ×0-×4, 8 at ×8-×16, 12-14 at ×32-×64, 20 at ×128.
+- **Target stiffness**: `k_Target = target_stiffness_factor (15) × max over patch points of (sum of k of the springs attached to that point)`. With the single mesh: 6.8e8 at ×0/×1, 1.0e9-1.4e9 at ×4-×128 (IB units).
   - **Why relative, not absolute**: what matters is k_Target relative to the springs it must overpower. Too low and the patch lags the prescribed motion; too high and the explicit time stepping blows up. Both limits move with E, the stiffness scale, the density and ds.
   - **Why incident stiffness, not global max(edge_k)**: the global max swings ~3× between densities because of sliver triangles. The incident stiffness is steady: 4.5e7 at ×0/×1, 7.4e7-8.8e7 at ×4-×64 (IB units; ×1280 the pre-10-08 3.5e4 and 5.8e4-6.9e4).
   - **Why 15** (numbers in pre-10-08 units, all ×1280 now): it reproduces the previous effective value (1000·k_Spring × a runtime scale of 0.2 = 9.38e5 ≈ 13.5-16× incident at ×4-×64). The runtime `TARGET_STIFFNESS_SCALE` was removed so the stiffness is set in one place; the `.target` value is used as written, ramped in over `STIFFNESS_RAMP_TIME`.
@@ -116,8 +117,10 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
 ## 4. Open issues (most important first)
 
 1. **Stiffness calibration not built.** `scale = 1` is just the formula's literal value (now in correct units, §3.3). The planned check: a single ribbon, no fluid, one end clamped by stiff targets, a known tip force, compared with **Timoshenko** deflection `δ = FL³/(3EI) + FL/(κGA)`, κ ≈ 5/6, G = E/(2(1+ν)) with silicone's ν ≈ 0.499. Model it on `NACA0020_Wing/verify_structure.py`, which solves the static problem with IB2d's own force routines. Also: `E_material = 0.74 MPa` has no known source. The UCL Soft Robotics Materials Database (Dragon Skin 30, `Tensile-Tests-Data/Dragon Skin 30.csv`) gives E ≈ 0.44-0.45 MPa, near-linear to ~100% strain. No physical experiments are planned, so reference behaviour must come from analytical/FE models.
+2. **Stability.**
+   - **Long runs blow up at 8-14 s at every density** (15 s runs, dt 5e-4, old per-ribbon mesh). The fluid is the cause: its kinetic energy grows steadily from the start, almost all as grid-scale noise, centred just behind the actuated base corners, while spring strains stay at 2-7% until the last ~0.05 s. The cell Reynolds number (peak speed · dx / ν) is ~1000 after 1 s and ~6000 by 10 s; IB2d's central-difference advection went NaN at ~1250 on the NACA case. Fixes to try: raise `mu` (30× water was stable for NACA), refine the grid, or upwind advection (an IB2d change).
+   - **×128 single mesh at dt 5e-4 goes NaN at t = 0.22 s**, just as k_Target finishes ramping in. Its 20-point actuation patch with k_Target per point is too stiff for this dt. Stable to 1 s with dt 2.5e-4, with the patch reduced to the 4 corner points, or at ×64 (14 points). Tip deflection at 1 s agrees within 0.3 mm across those three runs (`results/approach2_*_T1`). Open choice: lower dt at high density, cap the patch, or scale k_Target by 4/n_patch so the patch's total stiffness stays constant.
 3. **Poisson's ratio ceiling.** A central-force triangular lattice has an effective ν ≈ 1/3 whatever the stiffness (Cauchy relation), while silicone has ν ≈ 0.5. The scale knob can only correct the effective Young's modulus.
-4. **Thin edge triangles at high density.** Rail points stay ~ds (15 mm) apart while interior spacing shrinks (~2 mm at ×64), giving long, thin boundary triangles and sliver springs. Consider refining the rails along with the fill density.
 5. **Triangles invert under large bending**, worst at the base. The inversions are small, localised and self-correcting; pure spring networks resist inversion but can't prevent it. Options if it matters: denser or stiffer fill at the base, or an anti-inversion penalty term.
 6. **The patch radius is Euclidean, not edge-aware.** If the geometry changes (wall_thickness, rayPositions, L, W), re-check that the patch doesn't reach another edge, using the NaN check in §5.
 7. **k_Target at ×0/×1** is about half the old value (5.2e5 vs 9.4e5, pre-10-08 units); check that the patch still follows the prescribed motion at low density.
@@ -135,6 +138,7 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
   - **Short runs** (2 s, scale 1, E 0.74 MPa): ×0 at dt 1e-3 is clean. ×64 at dt 1e-3 went NaN at t ≈ 0.22 s, just as k_Target finished ramping in; at dt 5e-4, 2.5e-4 and 1e-4 it is clean, with the same tip motion (Δ < 0.6 mm). **The default dt is now 5e-4.** Full-length stability is open issue 2.
   - **Tip motion barely changed**: at t = 2 s the tip moves −27.4 mm (×0) and −27.6 mm (×64), against −26.7 mm in the old-units ×0 run. At 0.1 Hz and 1 cm the motion is quasi-static, so fluid loads are negligible next to the elastic forces in both versions, and the shape is set by geometry plus the prescribed base motion. The units fix will matter for forces/thrust, at higher frequency or amplitude, and for stiffness calibration (issue 1).
 - **2026-10-12, `mesh_utils` trimmed** (branch `approach1_trimmed`). Halton fill: scipy `qmc.Halton` replaces the hand-written sequence, a plain x/y sampling box replaces the PCA-oriented one, one distance helper replaces three, and the batch-doubling loop is gone. Same point counts and inside/gap rules, but different point positions. Triangulation: Triangle via `meshpy` replaces scipy Delaunay + the hand-written segment recovery (see the bug list), giving exactly 100% area at every density. `mesh_utils.py` went from 464 to 195 lines.
+- **2026-10-13, single mesh** (branch `approach2`). The tail is now one polygon with 5 window holes (`_tail_outline`), with edge points every h = ds/√mult (`mu.resample_loop`), one Halton fill and one triangulation. This replaces the 5 separate ribbons, `_offset_polyline`, rail welding (`weld_to_inner_rail`, `mu.project_point_to_polyline`), `_n_points_for_length` and the per-ribbon spring merge. It closes the old open issue "thin edge triangles at high density". Effects: more points (×128: 1489 vs 954), the actuation patch grows with density, sharp tip (+1.5% area). `FinRay_Geom.py` went from 623 to 340 lines.
 
 ### Bugs found and fixed (all in git history)
 - **Attach spring → weld**: removed the stiffest element; scale = 1.0 at ×1 went from NaN at t ≈ 3.3-3.6 s to clean through 5 s.
