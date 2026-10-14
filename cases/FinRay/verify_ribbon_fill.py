@@ -1,6 +1,6 @@
 """
 Fluid-free sanity check for the ribbon Halton-fill + Delaunay-triangulation
-feature (see NOTES.md): exercises _Build_Tail_Mesh /
+feature (see NOTES.md): exercises build_Tail_Mesh /
 build_Tail_Springs directly, across several
 ribbon_fill_density_multiplier values, and checks for degenerate springs,
 runaway point/spring counts, and runaway build time -- no Eulerian grid or
@@ -28,7 +28,7 @@ def _shoelace(loop):
 def run_one(mult, ds, wall_thickness):
     t0 = time.perf_counter()
     xLag, yLag, outlineRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys = \
-        FR._Build_Tail_Mesh(ds, wall_thickness, fill_density_multiplier=mult)
+        FR.build_Tail_Mesh(ds, wall_thickness, fill_density_multiplier=mult)
     connections, edge_k = FR.build_Tail_Springs(
         xLag, yLag, outlineRailIdx, rayRailIdxList, ribbonPolys,
         E_material=E, ds=ds, stiffness_scale=1.0)

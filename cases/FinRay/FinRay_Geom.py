@@ -76,7 +76,7 @@ def FinRay_Geom():
     #-------------------------------------------------------------------
     # Construct geometry
     xLag, yLag, frameRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys = \
-        _Build_Tail_Mesh(ds, wall_thickness,
+        build_Tail_Mesh(ds, wall_thickness,
                                      fill_spacing=fill_spacing,
                                      fill_density_multiplier=fill_density_multiplier)
     #-------------------------------------------------------------------
@@ -183,7 +183,7 @@ def _actuation_patch_indices(xLag, yLag, baseCornerIdx, radius, ribbonPolys=None
     contact area rather than a point force.
 
     baseCornerIdx: (railA_bottom, railB_bottom, railA_top, railB_top), as
-        returned by _Build_Tail_Mesh.
+        returned by build_Tail_Mesh.
     radius: patch radius, same units as xLag/yLag (meters). Should stay
         well under half the base width, or the two patches could merge.
     ribbonPolys: if given, restricts the patch to BOUNDARY (rail) points
@@ -260,7 +260,7 @@ def give_Me_Immersed_Boundary_Geometry(ds, Nx):
     Nx: Eulerian grid resolution
     '''
     wall_thickness = _geom.get('wall_thickness', 0.00396)
-    xLag, yLag, _, _, _, _ = _Build_Tail_Mesh(
+    xLag, yLag, _, _, _, _ = build_Tail_Mesh(
         ds, wall_thickness,
         fill_spacing=_geom.get('ribbon_fill_spacing', None),
         fill_density_multiplier=_geom.get('ribbon_fill_density_multiplier', 1.0))
@@ -296,7 +296,7 @@ def build_Tail_Springs(xLag, yLag, frameRailIdx, rayRailIdxList,
       'ray':   along each ray's two rails (open chain).
       'fill':  every other triangulation edge (cross-wall and interior).
 
-    ribbonPolys: list of dicts (see _Build_Tail_Mesh), one per
+    ribbonPolys: list of dicts (see build_Tail_Mesh), one per
         ribbon, each with 'boundary_idx'/'exterior_loop'/'inner_loops'/
         'interior_idx'. Each ribbon is triangulated even with no interior
         points (density multiplier 0), so its cross-wall edges still exist.
@@ -320,7 +320,7 @@ def build_Tail_Springs(xLag, yLag, frameRailIdx, rayRailIdxList,
         add_rail_chain(rB, False, 'ray')
 
     # Ray rail endpoints are welded into the frame's inner rail (see
-    # weld_to_inner_rail in _Build_Tail_Mesh), so the same
+    # weld_to_inner_rail in build_Tail_Mesh), so the same
     # vertex pair can appear twice, or two endpoints can weld onto one
     # vertex. Drop self-loops (zero-length, divide-by-zero springs) and
     # duplicate pairs, keeping the first occurrence's kind.
@@ -440,7 +440,7 @@ def _n_points_for_length(length, ds):
     return n_segments + 1
 
 
-def _Build_Tail_Mesh(ds, wall_thickness, fill_spacing=None,
+def build_Tail_Mesh(ds, wall_thickness, fill_spacing=None,
                                  fill_density_multiplier=1.0):
     '''
     Builds tail geometry with Halton sampling.
