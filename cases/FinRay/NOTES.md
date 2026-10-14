@@ -30,14 +30,14 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 
 **Geometry: `FinRay_Geom.py` → `FinRay_Geom()`**
 1. Parameters: grid (`Nx=32, Lx=1` → `dx=1/32`, `ds=dx/2=15.625 mm`), material and fill settings from `case_params.json["geom"]` (defaults in code).
-2. `_Build_Tail_Geometry_Ribbon()`:
+2. `_Build_Tail_Mesh()`:
    1. Triangle centerline (base → top edge → tip → bottom edge), point counts from `_n_points_for_length()`.
    2. `_offset_polyline(closed=True)` → frame rails A/B; `mu.closed_path(...).contains_point` decides which is exterior.
    3. `baseCornerIdx` = 2 base corners × 2 rails (actuation seeds).
    4. For each of 4 rays: centerline → `_offset_polyline(closed=False)` → each of the 4 rail endpoints welded into the frame's inner rail by `weld_to_inner_rail()` (via `mu.project_point_to_polyline`; reuses a vertex within 2% of a segment end, otherwise splices a new point into the inner rail **and** a partner point into the outer rail) → ring polygon → `mu.fill_polygon_with_halton()` interior points.
    5. Frame interior: `mu.fill_polygon_with_halton(exterior, inner_loops=[inner])`.
    6. Returns `xLag, yLag, frameRailIdx, rayRailIdxList, baseCornerIdx, ribbonPolys`. Note `weld_to_inner_rail` mutates the frame rail index lists in place.
-3. `build_Tail_Ribbon_Connections()`: rail-chain springs (dedupe self-loops/duplicates from welding) → `mu.triangulate_with_holes()` per ribbon → tributary area per edge → error if any rail segment isn't a triangulation edge → remaining edges added as `'fill'` → `edge_k`.
+3. `build_Tail_Springs()`: rail-chain springs (dedupe self-loops/duplicates from welding) → `mu.triangulate_with_holes()` per ribbon → tributary area per edge → error if any rail segment isn't a triangulation edge → remaining edges added as `'fill'` → `edge_k`.
 4. Preview plot → `geometry_preview.png`.
 5. Writes `finray.vertex`, `finray.geo_connect`, `finray.spring`.
 6. `_actuation_patch_indices()` → `k_Target` from `_max_incident_stiffness()` → `finray.target`.
@@ -68,7 +68,7 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 ## 3. Current model and why
 
 ### 3.1 Geometry
-- Triangle: length `L=0.136`, base width `W=0.051`, base at `x0=0.3`, centred on `y0=0.5`, tip pointing +x. Four rays parallel to the base at 25, 47, 69, 91 mm from it. All hard-coded in `_Build_Tail_Geometry_Ribbon` (TODO there: make these parameters).
+- Triangle: length `L=0.136`, base width `W=0.051`, base at `x0=0.3`, centred on `y0=0.5`, tip pointing +x. Four rays parallel to the base at 25, 47, 69, 91 mm from it. All hard-coded in `_Build_Tail_Mesh` (TODO there: make these parameters).
 - **Every edge is a 2-rail ribbon** of width `wall_thickness`, not a 1-point-thick line. This lets bending stiffness come from the material in the wall (one rail stretches while the other compresses) instead of a separately calibrated bending spring. `_offset_polyline` uses mitered normals, with the miter clamped (cos ≥ 0.25) so the tip doesn't spike.
 - **Rays are welded to the frame** (shared vertices), not attached by a separate spring. The old `'attach'` spring (k = 50·k_Spring) was the stiffest element in the model and caused NaN. When a weld splices a point into the inner rail, it also splices a partner point into the outer rail; without it, springs that pair the two rails by array index connected the wrong points.
 - **Boundary point counts** come from `_n_points_for_length`: round to the nearest number of *segments*, then points = segments + 1. Rounding the point count directly left base and ray segments at up to 214% of ds. Segments are now 70-124% of ds.
@@ -121,7 +121,7 @@ A_trib = 1/3 of the area of every triangle sharing the edge (summed across ribbo
 5. **Triangles invert under large bending**, worst at the base. The inversions are small, localised and self-correcting; pure spring networks resist inversion but can't prevent it. Options if it matters: denser or stiffer fill at the base, or an anti-inversion penalty term.
 6. **The patch radius is Euclidean, not edge-aware.** If the geometry changes (wall_thickness, rayPositions, L, W), re-check that the patch doesn't reach another edge, using the NaN check in §5.
 7. **k_Target at ×0/×1** is about half the old value (5.2e5 vs 9.4e5, pre-10-08 units); check that the patch still follows the prescribed motion at low density.
-8. Minor: the docstring of `update_Target_Point_Positions.py` says stiffness is "left untouched", but it is ramped. The geometry is hard-coded (4 rays; TODOs in `_Build_Tail_Geometry_Ribbon`). The TODO comment on `fill_density_multiplier` in `FinRay_Geom()` is answered in §3.2.
+8. Minor: the docstring of `update_Target_Point_Positions.py` says stiffness is "left untouched", but it is ramped. The geometry is hard-coded (4 rays; TODOs in `_Build_Tail_Mesh`). The TODO comment on `fill_density_multiplier` in `FinRay_Geom()` is answered in §3.2.
 
 ## 5. History and verification log
 
