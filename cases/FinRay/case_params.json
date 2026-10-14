@@ -1,5 +1,5 @@
 {
-  "case_name": "mult32.00_scale1.00",
+  "case_name": "mult128.00_scale1.00",
   "input2d": {
     "mu": 0.001,
     "rho": 1000.0,
@@ -16,7 +16,7 @@
     "wall_thickness": 0.00396,
     "extrude_depth": 0.027,
     "ribbon_fill_spacing": null,
-    "ribbon_fill_density_multiplier": 32.0,
+    "ribbon_fill_density_multiplier": 128.0,
     "ribbon_fill_stiffness_scale": 1.0,
     "actuation_patch_radius": null,
     "target_stiffness_factor": 15.0

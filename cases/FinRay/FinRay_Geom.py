@@ -89,8 +89,7 @@ def FinRay_Geom():
     actuation_patch_radius = _geom.get('actuation_patch_radius', None)
     if actuation_patch_radius is None:
         actuation_patch_radius = 1.0 * wall_thickness
-    target_indices = _actuation_patch_indices(xLag, yLag, baseCornerIdx, actuation_patch_radius,
-                                               n_boundary)
+    target_indices = _actuation_patch_indices(xLag, yLag, baseCornerIdx, actuation_patch_radius)
 
     target_stiffness_factor = _geom.get('target_stiffness_factor', 15.0)
     k_Target = target_stiffness_factor * _max_incident_stiffness(target_indices, edge_k)
@@ -190,32 +189,30 @@ def print_Lagrangian_Springs(xLag, yLag, connections, edge_k, struct_name, deg_N
             f.write('%d %d %1.16e %1.16e %1.16e\n' % (i, j, k, ds_Rest, deg_NL))
 
 
-def _actuation_patch_indices(xLag, yLag, baseCornerIdx, radius, n_boundary):
+def _actuation_patch_indices(xLag, yLag, baseCornerIdx, radius):
     '''
-    The two actuation patches: every outline point within `radius` of a base
-    corner (the midpoint of that corner's outer and inner points), plus the 4
-    corner points themselves. update_Target_Point_Positions.py moves each
-    patch as one rigid block, approximating a real actuator's finite contact
-    area rather than a point force.
+    The two actuation patches, matching the real build: the tips of two
+    linear actuators are attached to the base's OUTER face, one at each end;
+    each pushes then pulls (+x and back) in turn and holds its corner in
+    place while the other one moves. A patch is every point on that face
+    (x = the outer corners' x) within `radius` of its outer corner, corner
+    included: the attachment footprint. No window (inner face), slanted-edge
+    or fill point is driven. update_Target_Point_Positions.py moves each
+    patch as one rigid block (stiff target springs, so it pulls and holds as
+    well as pushes).
 
-    baseCornerIdx: (outer_bottom, inner_bottom, outer_top, inner_top), as
-        returned by _Build_Tail_Mesh.
-    radius: patch radius (m). Should stay well under half the base width,
-        or the two patches could merge.
-    n_boundary: outline points are indices 0..n_boundary-1, and only they
-        are eligible -- a real actuator grips the surface, not the bulk, and
-        forcing many fill points into rigid lockstep via the very stiff
-        target springs caused NaN at high density (see NOTES.md).
+    baseCornerIdx: (outer_bottom, outer_top), as returned by _Build_Tail_Mesh.
+    radius: attachment reach along the base face (m). Should stay well under half
+        the base width, or the two patches could merge.
 
     Returns a sorted list of point indices (the union of both patches).
     '''
     pts = np.column_stack((xLag, yLag))
-    c = baseCornerIdx
+    on_face = np.isclose(xLag, xLag[baseCornerIdx[0]], rtol=0.0, atol=1e-12)
     near = np.zeros(len(pts), dtype=bool)
-    for ref in ((pts[c[0]] + pts[c[1]]) / 2, (pts[c[2]] + pts[c[3]]) / 2):
-        near |= np.linalg.norm(pts - ref, axis=1) <= radius
-    near[n_boundary:] = False
-    return sorted(set(np.where(near)[0].tolist()) | set(c))
+    for c in baseCornerIdx:
+        near |= np.linalg.norm(pts - pts[c], axis=1) <= radius
+    return sorted(np.where(on_face & near)[0].tolist())
 
 
 def print_Lagrangian_Target_Pts(target_indices, k_Target, struct_name):
@@ -301,6 +298,9 @@ def _tail_outline(wall_thickness):
         TODO: implement variable structure parameters (e.g. # rays, length, base width)
 
     NOTE: the tail is placed with its base vertical and the tip pointing right in the domain.
+
+    Returns (outer, windows): outer is the outline polygon, windows is a list of
+    the 5 open windows (holes) inside it.
     '''
     L = 0.136   # tail length
     W = 0.051   # base width
@@ -344,8 +344,8 @@ def _Build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier):
             0..n_boundary-1), then the fill points
         triangles: (nt, 3) array of point indices
         n_boundary: number of outline points
-        baseCornerIdx: (outer_bottom, inner_bottom, outer_top, inner_top), the
-            base's corner points (seeds for the actuation patches)
+        baseCornerIdx: (outer_bottom, outer_top), the base's two outer corner
+            points (seeds for the actuation patches)
         outer, windows: the polygons from _tail_outline
     '''
     outer, windows = _tail_outline(wall_thickness)
@@ -355,7 +355,7 @@ def _Build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier):
                                        density_multiplier=fill_density_multiplier)
     pts, _, triangles = mu.triangulate_with_holes(loops[0], loops[1:], np.vstack(loops), fill)
 
-    corners = (outer[0], windows[0][0], outer[-1], windows[0][-1])
+    corners = (outer[0], outer[-1])   # outer outline's base corners (bottom, top)
     baseCornerIdx = tuple(int(np.argmin(np.linalg.norm(pts - c, axis=1))) for c in corners)
     return pts[:, 0], pts[:, 1], triangles, sum(len(l) for l in loops), baseCornerIdx, outer, windows
 
