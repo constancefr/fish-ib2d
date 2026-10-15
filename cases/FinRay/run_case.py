@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -43,7 +44,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
 import run_records as rr
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = EXAMPLE_DIR / "results"
+RESULTS_DIR = EXAMPLE_DIR / "results_approach2"
+
+# Columns of results/index.csv, in order: the parameters and results used for
+# analysis. Every other field (unused IB2d features, output switches, package
+# versions, ...) stays in each run's run_info.json and in index_full.csv
+# (`python run_case.py index --all`). Keep parameters here even while a sweep
+# holds them constant: they are what differs between sweeps.
+INDEX_COLUMNS = [
+    # identity
+    "folder", "run_id", "timing.start", "backfilled",
+    "provenance.commit", "provenance.branch", "provenance.uncommitted_changes",
+    # parameters
+    "inputs.geom.ribbon_fill_density_multiplier", "inputs.geom.ribbon_fill_spacing",
+    "inputs.geom.ribbon_fill_stiffness_scale", "inputs.geom.E_material",
+    "inputs.geom.wall_thickness", "inputs.geom.actuation_patch_radius",
+    "inputs.geom.target_stiffness_factor",
+    "inputs.actuation.FREQUENCY", "inputs.actuation.AMPLITUDE",
+    "inputs.actuation.STIFFNESS_RAMP_TIME",
+    "inputs.input2d.mu", "inputs.input2d.rho", "inputs.input2d.dt", "inputs.input2d.Tfinal",
+    "inputs.input2d.Nx", "inputs.input2d.Ny", "inputs.input2d.Lx", "inputs.input2d.Ly",
+    "inputs.input2d.supp",
+    # mesh
+    "mesh.edge_spacing", "mesh.n_edge_points", "mesh.n_fill_points_requested",
+    "mesh.n_fill_points", "mesh.n_points", "mesh.n_springs", "mesh.k_median", "mesh.k_max",
+    "mesh.n_target_points", "mesh.k_Target", "mesh.mesh_area_fraction", "mesh.build_time_s",
+    # timing (backfilled runs only have the approximate wall time)
+    "timing.geometry_wall_time_s", "timing.sim_wall_time_s", "timing.sim_wall_time_s_approx",
+    "timing.sim_time_per_step_ms",
+    # outcome
+    "outcome.status", "outcome.first_nan_time", "outcome.last_output_time",
+    "outcome.interrupted",
+]
 
 
 # --- Base case: loaded from case_params.json on disk ---
@@ -92,8 +124,8 @@ def make_sweep():
     '''
     # multipliers = [0.0, 1.0, 4.0, 8.0]
     # scales = [0.05, 0.1, 0.3, 1.0]
-    # multipliers = [1.0]
-    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0, 128.0]
+    # multipliers = [0.0]
+    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0, 128.0, 256.0]
     scales = [1.0]
 
     # ribbon_fill_stiffness_scale now scales EVERY spring (rails included),
@@ -146,8 +178,16 @@ def run_case(case: dict):
     (never overwrites an earlier run) and writes its run_info.json there:
     inputs, mesh metrics, timing, outcome, and the code version (commit,
     plus code.diff if the tree had uncommitted changes). See
-    common/run_records.py.
+    common/run_records.py. A run that is stopped (Ctrl+C, or an IDE's stop
+    button) is still archived and recorded, with outcome.interrupted = True,
+    and then the sweep stops.
     '''
+    for folder in ("viz_IB2d", "hier_IB2d_data"):
+        if (EXAMPLE_DIR / folder).exists():
+            raise RuntimeError(
+                f"{folder}/ is left over from an earlier run that stopped before it was "
+                f"archived. Move it into that run's results folder (then `python "
+                f"../../common/run_records.py backfill <that folder>`), or delete it.")
     start = datetime.now()
     run_id = f"{case['case_name']}_{start:%Y%m%d-%H%M%S}"
     case_dir = RESULTS_DIR / run_id
@@ -170,9 +210,14 @@ def run_case(case: dict):
     subprocess.run([sys.executable, "FinRay_Geom.py"], cwd=EXAMPLE_DIR, env=env, check=True)
     t_geom = time.perf_counter() - t0
 
-    # d) run the simulation (fresh subprocess)
+    # d) run the simulation (fresh subprocess). If interrupted, subprocess.run
+    #    stops main2d.py, and the run is still archived and recorded below.
     t0 = time.perf_counter()
-    sim = subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR)
+    try:
+        exit_code = subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR).returncode
+        interrupted = False
+    except KeyboardInterrupt:
+        exit_code, interrupted = None, True
     t_sim = time.perf_counter() - t0
 
     # e) archive results
@@ -196,9 +241,9 @@ def run_case(case: dict):
                     geometry_wall_time_s=round(t_geom, 1),
                     sim_wall_time_s=round(t_sim, 1),
                     n_steps=n_steps,
-                    sim_time_per_step_ms=round(1e3 * t_sim / n_steps, 2)),
+                    sim_time_per_step_ms=None if interrupted else round(1e3 * t_sim / n_steps, 2)),
         outcome=dict(rr.outcome(case_dir / "viz_IB2d", inp["dt"], inp["print_dump"], inp["Tfinal"]),
-                     exit_code=sim.returncode),
+                     exit_code=exit_code, interrupted=interrupted),
         provenance=code,
     )
     rr.write_run_info(case_dir, info)
@@ -209,12 +254,19 @@ def run_case(case: dict):
               f"{info['outcome']['first_nan_time']:.2f} s) -- see {case_dir} ===")
     else:
         print(f"=== {status}: results in {case_dir} ===")
-    if sim.returncode:
-        raise subprocess.CalledProcessError(sim.returncode, "main2d.py")
+    if interrupted:
+        raise KeyboardInterrupt  # stop the sweep (main() still rebuilds the index)
+    if exit_code:
+        raise subprocess.CalledProcessError(exit_code, "main2d.py")
     return case_dir
 
 
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main():
+    signal.signal(signal.SIGTERM, _interrupt)  # an IDE's stop button: treat like Ctrl+C
     try:
         for case in make_sweep():
         # for case in [BASE_CASE]:    # for initial testing
@@ -228,8 +280,17 @@ def main():
             # ], check=True)
     finally:
         # rebuilt even if a case crashed, so finished runs are always listed
-        print(f"\nIndex: {rr.write_index(RESULTS_DIR)}")
+        print(f"\nIndex: {rr.write_index(RESULTS_DIR, INDEX_COLUMNS)}")
 
 
 if __name__ == "__main__":
-    main()
+    # `python run_case.py index [--all] [DIR ...]` only rebuilds index.csv
+    # (and index_full.csv with --all) for DIR (default RESULTS_DIR)
+    if sys.argv[1:2] == ["index"]:
+        dirs = [a for a in sys.argv[2:] if a != "--all"] or [RESULTS_DIR]
+        for d in dirs:
+            print("wrote", rr.write_index(d, INDEX_COLUMNS))
+            if "--all" in sys.argv:
+                print("wrote", rr.write_index(d))
+    else:
+        main()
