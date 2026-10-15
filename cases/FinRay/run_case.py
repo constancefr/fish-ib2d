@@ -14,8 +14,11 @@ Parameter-sweep driver for the FinRay IB2d example. Configure one or more
      a new folder results/<case_name>_<YYYYmmdd-HHMMSS>/, alongside a copy
      of case_params.json and input2d
   6. write that folder's run_info.json (inputs, mesh metrics, timing,
-     outcome, code version; see common/run_records.py), and after the
-     sweep rebuild results/index.csv, one row per run
+     outcome, code version), and after the sweep rebuild results/index.csv,
+     one row per run
+
+Steps 1-6 for one case are common/run_records.run_case() (shared with
+NACA0020_Wing); this file only defines the sweep and the index columns.
 
 WHY SUBPROCESSES ---
 update_Target_Point_Positions.py caches its baseline corner positions in
@@ -30,14 +33,9 @@ Run this script from inside the wanted Example folder, e.g. FinRay/
 '''
 
 import json
-import os
-import re
-import shutil
 import signal
 import subprocess
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
@@ -150,117 +148,6 @@ def make_sweep():
     return cases
 
 
-# --- input2d patching
-def patch_input2d(values: dict):
-    '''
-    Rewrites matching `name = value` lines in input2d in place.
-    '''
-    path = EXAMPLE_DIR / "input2d"
-    text = path.read_text()
-
-    for key, val in values.items():
-        # Matches "key = 0.01" or "key= 0.01   % comment"; keeps the comment.
-        pattern = re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)([^\s%]+)", re.MULTILINE)
-        if not pattern.search(text):
-            raise ValueError(
-                f"Couldn't find '{key}' in input2d -- check the exact "
-                f"parameter name/formatting in your input2d file."
-            )
-        text = pattern.sub(lambda m: m.group(1) + repr(val), text)
-
-    path.write_text(text)
-
-
-# --- Run one case
-def run_case(case: dict):
-    '''
-    Runs one case into its own new folder results/<case_name>_<YYYYmmdd-HHMMSS>/
-    (never overwrites an earlier run) and writes its run_info.json there:
-    inputs, mesh metrics, timing, outcome, and the code version (commit,
-    plus code.diff if the tree had uncommitted changes). See
-    common/run_records.py. A run that is stopped (Ctrl+C, or an IDE's stop
-    button) is still archived and recorded, with outcome.interrupted = True,
-    and then the sweep stops.
-    '''
-    for folder in ("viz_IB2d", "hier_IB2d_data"):
-        if (EXAMPLE_DIR / folder).exists():
-            raise RuntimeError(
-                f"{folder}/ is left over from an earlier run that stopped before it was "
-                f"archived. Move it into that run's results folder (then `python "
-                f"../../common/run_records.py backfill <that folder>`), or delete it.")
-    start = datetime.now()
-    run_id = f"{case['case_name']}_{start:%Y%m%d-%H%M%S}"
-    case_dir = RESULTS_DIR / run_id
-    case_dir.mkdir(parents=True)
-    print(f"\n=== Running case: {run_id} ===")
-    # code version as it is at launch (edits made while a sweep runs don't count)
-    code = rr.provenance(EXAMPLE_DIR, case_dir / "code.diff")
-
-    # a) write case_params.json (read by FinRay_Geom.py and
-    #    update_Target_Point_Positions.py)
-    params_path = EXAMPLE_DIR / "case_params.json"
-    params_path.write_text(json.dumps(case, indent=2))
-
-    # b) patch input2d
-    patch_input2d(case["input2d"])
-
-    # c) regenerate geometry/input files (also writes mesh_info.json)
-    env = dict(os.environ, MPLBACKEND="Agg") # Agg backend so that plt.show() is a no-op and doesn't block
-    t0 = time.perf_counter()
-    subprocess.run([sys.executable, "FinRay_Geom.py"], cwd=EXAMPLE_DIR, env=env, check=True)
-    t_geom = time.perf_counter() - t0
-
-    # d) run the simulation (fresh subprocess). If interrupted, subprocess.run
-    #    stops main2d.py, and the run is still archived and recorded below.
-    t0 = time.perf_counter()
-    try:
-        exit_code = subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR).returncode
-        interrupted = False
-    except KeyboardInterrupt:
-        exit_code, interrupted = None, True
-    t_sim = time.perf_counter() - t0
-
-    # e) archive results
-    for folder in ("viz_IB2d", "hier_IB2d_data"):
-        src = EXAMPLE_DIR / folder
-        if src.exists():
-            shutil.move(str(src), str(case_dir / folder))
-    shutil.copy(params_path, case_dir / "case_params.json")
-    shutil.copy(EXAMPLE_DIR / "input2d", case_dir / "input2d")
-
-    # f) run record
-    inp = rr.read_input2d(case_dir / "input2d")
-    n_steps = round(inp["Tfinal"] / inp["dt"])
-    info = dict(
-        run_id=run_id,
-        case_name=case["case_name"],
-        inputs=rr.inputs(case, inp),
-        mesh=json.loads((EXAMPLE_DIR / "mesh_info.json").read_text()),
-        timing=dict(start=start.isoformat(timespec="seconds"),
-                    end=datetime.now().isoformat(timespec="seconds"),
-                    geometry_wall_time_s=round(t_geom, 1),
-                    sim_wall_time_s=round(t_sim, 1),
-                    n_steps=n_steps,
-                    sim_time_per_step_ms=None if interrupted else round(1e3 * t_sim / n_steps, 2)),
-        outcome=dict(rr.outcome(case_dir / "viz_IB2d", inp["dt"], inp["print_dump"], inp["Tfinal"]),
-                     exit_code=exit_code, interrupted=interrupted),
-        provenance=code,
-    )
-    rr.write_run_info(case_dir, info)
-
-    status = info["outcome"]["status"]
-    if status == "diverged":
-        print(f"=== WARNING: {run_id} diverged (NaN from t = "
-              f"{info['outcome']['first_nan_time']:.2f} s) -- see {case_dir} ===")
-    else:
-        print(f"=== {status}: results in {case_dir} ===")
-    if interrupted:
-        raise KeyboardInterrupt  # stop the sweep (main() still rebuilds the index)
-    if exit_code:
-        raise subprocess.CalledProcessError(exit_code, "main2d.py")
-    return case_dir
-
-
 def _interrupt(signum, frame):
     raise KeyboardInterrupt
 
@@ -270,7 +157,7 @@ def main():
     try:
         for case in make_sweep():
         # for case in [BASE_CASE]:    # for initial testing
-            case_dir = run_case(case)
+            case_dir = rr.run_case(case, EXAMPLE_DIR, RESULTS_DIR, "FinRay_Geom.py")
 
             # Optional: chain straight into VisIt for a movie per case.
             # movie_path = case_dir / f"{case['case_name']}.mp4"

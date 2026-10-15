@@ -7,7 +7,7 @@
 % FLUID PARAMETER VALUES %
 %
 Fluid_Parameters {
-mu = 3.0069e-2           % Dynamic Viscosity (N*s/m^2) = 30 x water (1.0023e-3), i.e. Re ~ 1300 -- see NOTES.md (Re limit)
+mu = 0.030069000000000002           % Dynamic Viscosity (N*s/m^2) = 30 x water (1.0023e-3), i.e. Re ~ 1300 -- see NOTES.md (Re limit)
 rho = 1000.0               % Density (kg/m^3)
 }
 
@@ -17,7 +17,7 @@ rho = 1000.0               % Density (kg/m^3)
 %
 Temporal_Information {
 Tfinal = 10.0            % Final time of simulation (s)
-dt = 1.0e-4             % Time-step (s)
+dt = 0.0001             % Time-step (s)
 Restart_Flag = 0        % Restart Flag (0 for no, 1 for yes)
 }
 
@@ -42,7 +42,7 @@ springs = 1             % 0 (for no) or 1 (for yes)
 update_springs = 0      % 0 (for no) or 1 (for yes)
 target_pts = 1          % 0 (for no) or 1 (for yes) -- CLAMPS THE RIGID LEADING-EDGE SEGMENT
 update_target = 0       % 0 (for no) or 1 (for yes)
-beams = 0               % 0 (for no) or 1 (for yes) -- NOT USED: IB2d's .beam force is non-conservative (see NOTES.md)
+beams = 0               % 0 (for no) or 1 (for yes) -- NOT USED: bending comes from the triangulated airfoil (see NOTES.md)
 update_beams = 0        % 0 (for no) or 1 (for yes)
 nonInvariant_beams = 0  % 0 (for no) or 1 (for yes) % "non-Invariant Beams"
 update_nonInv_beams = 0 % 0 (for no) or 1 (for yes) % Update "non-Invariant Beams"
@@ -61,7 +61,7 @@ damped_springs = 0      % 0 (for no) or 1 (for yes)
 update_damp_springs = 0 % 0 (for no) or 1 (for yes)
 boussinesq = 0          % 0 (for no) or 1 (for yes)  % FOR BOUSSINESQ APPROXIMATION!
 expansion_coeff = 1.0   % expansion coefficient for Boussinesq approx.
-user_force_model = 1    % 0 (for no) or 1 (for yes) -- EULER-BERNOULLI BENDING (+ KV DAMPING) OF THE FLEXIBLE LINK
+user_force_model = 0    % 0 (for no) or 1 (for yes) -- only for the legacy Wing_Geom_centerline.py (its bending hook)
 coagulation = 0         % 0 (for no) or 1 (for yes)
 }
 

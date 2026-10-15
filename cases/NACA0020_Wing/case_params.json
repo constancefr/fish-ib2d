@@ -20,18 +20,16 @@
     "rigid_length": 0.06,
     "E_flex": 10000.0,
     "rho_solid": 1064.6,
-    "span": 1.0,
-    "centerline_spacing": 0.01,
-    "EI_floor_thickness": 0.008,
     "init_q": [
       1.0,
       0.0,
       0.0,
       0.0
     ],
-    "K_tie": 10000.0,
-    "K_skin": 50.0,
-    "K_target": 10000.0
+    "fill_density_multiplier": 8.0,
+    "fill_spacing": null,
+    "stiffness_scale": 3.966,
+    "target_stiffness_factor": 15.0
   },
   "flow": {
     "U": 0.2,
