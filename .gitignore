@@ -3,6 +3,7 @@
 **/results/*
 
 **/visitlog.py
+slurm-*.out
 
 *.mp4
 

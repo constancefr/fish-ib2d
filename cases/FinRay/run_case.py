@@ -188,8 +188,37 @@ def _final_frame_has_nan(case_dir):
 
 
 def main():
-    for case in make_sweep():
-    # for case in [BASE_CASE]:    # for initial testing
+    '''
+    No arguments: run every case in make_sweep() one after another (local use).
+    --list:       print "<index> <case_name>" for each case and exit, without
+                  running anything -- slurm/submit_sweep.sh uses this to size
+                  the job array.
+    --index N:    run only case N of make_sweep() (0-based) -- one Slurm array
+                  task per case, see slurm/sweep_array.sbatch.
+    '''
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--list", action="store_true",
+                       help="print the index and name of each case, then exit")
+    group.add_argument("--index", type=int,
+                       help="run only case INDEX of make_sweep() (0-based)")
+    args = parser.parse_args()
+
+    cases = make_sweep()
+    # cases = [BASE_CASE]    # for initial testing
+
+    if args.list:
+        for i, case in enumerate(cases):
+            print(i, case["case_name"])
+        return
+    if args.index is not None:
+        if not 0 <= args.index < len(cases):
+            sys.exit(f"--index {args.index} out of range: the sweep has "
+                     f"{len(cases)} case(s), indices 0-{len(cases) - 1}")
+        cases = [cases[args.index]]
+
+    for case in cases:
         case_dir = run_case(case)
 
         # Optional: chain straight into VisIt for a movie per case.
