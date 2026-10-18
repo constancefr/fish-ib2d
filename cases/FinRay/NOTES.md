@@ -10,6 +10,8 @@ Context for anyone (or any new Claude session) picking up this case. Sections:
 
 Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 is history.
 
+**Next work: `EXPERIMENT_PLAN.md`** (numerical verification, then the physics sweeps, on the cluster). It lists the decisions made so far and the open ones, which are the user's to make.
+
 ---
 
 ## 1. Repository context
