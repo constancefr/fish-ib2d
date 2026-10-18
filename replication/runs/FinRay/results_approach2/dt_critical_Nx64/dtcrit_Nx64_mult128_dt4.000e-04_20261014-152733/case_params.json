@@ -1,0 +1,29 @@
+{
+  "case_name": "dtcrit_Nx64_mult128_dt4.000e-04",
+  "input2d": {
+    "mu": 0.001,
+    "rho": 1000.0,
+    "Tfinal": 1.0,
+    "dt": 0.0004,
+    "Nx": 64,
+    "Ny": 64,
+    "Lx": 1.0,
+    "Ly": 1.0,
+    "supp": 4
+  },
+  "geom": {
+    "E_material": 740000.0,
+    "wall_thickness": 0.00396,
+    "extrude_depth": 0.027,
+    "ribbon_fill_spacing": null,
+    "ribbon_fill_density_multiplier": 128.0,
+    "ribbon_fill_stiffness_scale": 1.0,
+    "actuation_patch_radius": null,
+    "target_stiffness_factor": 15.0
+  },
+  "actuation": {
+    "FREQUENCY": 0.1,
+    "AMPLITUDE": 0.01,
+    "STIFFNESS_RAMP_TIME": 0.2
+  }
+}

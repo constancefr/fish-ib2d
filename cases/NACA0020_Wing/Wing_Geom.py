@@ -218,7 +218,7 @@ def build_wing(params=None, Nx=None, Lx=None, **overrides):
     # spring force is a Python loop, ~6 us per spring per call; this removes
     # about a third of them)
     rigid = set(target_idx.tolist())
-    all_connections = connections        # still drawn: .geo_connect and the preview
+    all_connections = connections        # kept for .geo_connect and the preview (IB2d draws only the springs)
     connections = [c for c in connections if not (c[0] in rigid and c[1] in rigid)]
     edge_k = {(i, j): edge_k[(i, j)] for i, j, _ in connections}
     k_Target = target_factor * mu.max_incident_stiffness(target_idx.tolist(), edge_k)
@@ -278,7 +278,7 @@ def write_files(w, struct_name='wing'):
         for i in w['target_idx']:
             f.write('%d %1.16e\n' % (i, w['k_Target']))
 
-    with open(struct_name + '.geo_connect', 'w') as f:   # every mesh edge (drawing only)
+    with open(struct_name + '.geo_connect', 'w') as f:   # every mesh edge (not read by IB2d's python driver)
         for i, j, _ in w['all_connections']:
             f.write('%d %d\n%d %d\n' % (i, j, j, i))
 

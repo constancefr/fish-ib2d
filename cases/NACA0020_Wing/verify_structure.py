@@ -27,7 +27,8 @@ deflection is exactly proportional to 1 / stiffness_scale:
   3. IB2d cross-check: IB2d's own spring + target force routines evaluated
      at the solved shape must balance the load (same units and forces as the
      real run).
-  4. clamp: tip deflection with target_stiffness_factor x10.
+  4. clamp: tip deflection with target_stiffness_factor x10 (the case's
+     factor is used everywhere else).
   5. density sweep of 1 and 2 -> the default fill_density_multiplier is the
      lowest one whose scale is within 2 % of the next density's.
 
@@ -170,7 +171,7 @@ def strip_test(ds, mult, E):
     return fit_scale(u1, eb), len(x)
 
 
-def wing_test(mult, target_factor=15.0):
+def wing_test(mult, target_factor):
     '''Wing at stiffness_scale 1 under the uniform load on its flexible upper
     skin. Returns (w, s, u1): the structure, stations s along the flexible
     link and the centreline deflection there (m).'''
@@ -232,11 +233,12 @@ def main():
           % FIT_UP_TO)
     print('   mult   strip pts  strip scale   wing pts  wing scale  vs beam   tip/ref  tip/beam   time[s]')
     mult0 = g.get('fill_density_multiplier', 8.0)
+    tf = g.get('target_stiffness_factor', 15.0)
     rows = {}
     for mult in sorted(set(MULTIPLIERS) | {mult0}):
         t0 = time.perf_counter()
         a_strip, n_strip = strip_test(ds, mult, E)
-        w, s, u1, _ = wing_test(mult)
+        w, s, u1, _ = wing_test(mult, tf)
         fit = (s > 0) & (s <= FIT_UP_TO * L3 + 1e-12)
         ref = np.interp(s, s_ref, y_gvs); eb = np.interp(s, s_ref, y_eb)
         a_ref, a_eb = fit_scale(u1[fit], ref[fit]), fit_scale(u1[fit], eb[fit])
@@ -246,10 +248,10 @@ def main():
                  u1[-1] / a_ref / ref[-1], u1[-1] / a_eb / eb[-1], time.perf_counter() - t0))
 
     w, s, u1, a = rows[mult0]
-    print('\nAt the case density x%g:' % mult0)
-    _, _, u1c, _ = wing_test(mult0, target_factor=150.0)
-    print('   clamp: tip deflection with target_stiffness_factor 150 / 15 = %.4f' % (u1c[-1] / u1[-1]))
-    w1, _, _, (ux, uy, fy) = wing_test(mult0)
+    print('\nAt the case density x%g (target_stiffness_factor %g):' % (mult0, tf))
+    _, _, u1c, _ = wing_test(mult0, 10 * tf)
+    print('   clamp: tip deflection with target_stiffness_factor %g / %g = %.4f' % (10 * tf, tf, u1c[-1] / u1[-1]))
+    w1, _, _, (ux, uy, fy) = wing_test(mult0, tf)
     print('   IB2d force routines at the solved shape, max|residual| / max|load| at load x1, x1e-2, x1e-4:'
           ' %s  (falls ~eps: linear part exact)'
           % ', '.join('%.1e' % ib2d_residual(w1, ux, uy, fy, e) for e in (1.0, 1e-2, 1e-4)))

@@ -17,7 +17,7 @@ rho = 1000.0               % Density (kg/m^3)
 %
 Temporal_Information {
 Tfinal = 10.0            % Final time of simulation (s)
-dt = 0.0001             % Time-step (s)
+dt = 0.0002             % Time-step (s)
 Restart_Flag = 0        % Restart Flag (0 for no, 1 for yes)
 }
 
@@ -82,7 +82,7 @@ c_inf = 1             % saturation limit for concentration, for k_source = 2
 % PRINTING INFORMATION
 %
 Output_Info {
-print_dump = 500         % How often to print (PLOT) to screen
+print_dump = 100         % How often to print (PLOT) to screen
 save_Vorticity = 1      % Save Vorticity Scalar Data to .vtk format
 save_Pressure = 1       % Save Pressure Scalar Data to .vtk format
 save_uVec = 1           % Save u-Vector Data to .vtk format

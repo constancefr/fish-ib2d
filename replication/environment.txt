@@ -1,0 +1,13 @@
+# Package versions of the conda env (`ib2d`) that produced every run in manifest.json,
+# Python 3.14.4 on macOS arm64. Installing these keeps results as close as possible;
+# exact bit-for-bit agreement is only expected on the same machine.
+numpy==2.4.6
+scipy==1.18.1
+matplotlib==3.11.0
+meshpy==2026.1.1
+numba==0.66.0
+llvmlite==0.48.0
+vtk==9.7.0
+# pyFFTW was installed (a local build reporting version 0.0.0), so IB2d used FFTW
+# for the fluid solve. Install pyfftw too; without it IB2d falls back to numpy's FFT.
+pyfftw

@@ -1,0 +1,938 @@
+{
+  "description": "Every simulation run that existed locally on 2026-10-16, with the exact code that produced it. Run them with replication/replicate.py (see replication/README.md).",
+  "ib2d_submodule": "a5136ac7d111452df8bae43254126a3ce4b9ee82",
+  "not_reproducible": [
+    {
+      "path": "old_results/FinRay_results_0",
+      "reason": "made in the old IB2d fork from uncommitted code (imports _mesh_utils, never committed at b656ebf); pre-units-fix model (rho=1, springs 1280x too soft, TARGET_STIFFNESS_SCALE). Inputs kept in replication/runs/legacy/FinRay_results_0/ for reference."
+    },
+    {
+      "path": "old_results/NACA0200_results_0",
+      "reason": "no case_params.json, input2d or record was saved; made 2026-10-08 from the first NACA implementation (280cce2-era, superseded)."
+    }
+  ],
+  "runs": [
+    {
+      "path": "FinRay/results_approach1/mult0.00_scale1.00",
+      "case": "FinRay",
+      "group": "approach1",
+      "commit": "96af2b410edb70ba5dc97aaef111bc6d7c22e7e0",
+      "extra_files": [
+        {
+          "path": "common/ib_units.py",
+          "from_commit": "60ce2bfc9f2d32011332bc2064ac52508e9ef57b"
+        }
+      ],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 0.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 12.04,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 78,
+        "ref_frame": 1203,
+        "sim_wall_time_s": 34.2,
+        "machine": null
+      },
+      "evidence": "initial points regenerated at 96af2b4 (+ common/ib_units.py, untracked then, identical from 60ce2bf on) match frame 0 to 5e-12"
+    },
+    {
+      "path": "FinRay/results_approach1/mult1.00_scale1.00",
+      "case": "FinRay",
+      "group": "approach1",
+      "commit": "60ce2bfc9f2d32011332bc2064ac52508e9ef57b",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 1.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 13.71,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 84,
+        "ref_frame": 1370,
+        "sim_wall_time_s": 38.1,
+        "machine": null
+      },
+      "evidence": "initial points regenerated at 60ce2bf (= approach1_trimmed f60d680 up to renames) match frame 0 to 5e-12"
+    },
+    {
+      "path": "FinRay/results_approach1/mult8.00_scale1.00",
+      "case": "FinRay",
+      "group": "approach1",
+      "commit": "96af2b410edb70ba5dc97aaef111bc6d7c22e7e0",
+      "extra_files": [
+        {
+          "path": "common/ib_units.py",
+          "from_commit": "60ce2bfc9f2d32011332bc2064ac52508e9ef57b"
+        }
+      ],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 8.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 9.09,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 134,
+        "ref_frame": 908,
+        "sim_wall_time_s": 50.8,
+        "machine": null
+      },
+      "evidence": "initial points regenerated at 96af2b4 (+ common/ib_units.py, untracked then, identical from 60ce2bf on) match frame 0 to 5e-12"
+    },
+    {
+      "path": "FinRay/results_approach1/mult32.00_scale1.00",
+      "case": "FinRay",
+      "group": "approach1",
+      "commit": "60ce2bfc9f2d32011332bc2064ac52508e9ef57b",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 32.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 8.89,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 298,
+        "ref_frame": 888,
+        "sim_wall_time_s": 96.6,
+        "machine": null
+      },
+      "evidence": "initial points regenerated at 60ce2bf (= approach1_trimmed f60d680 up to renames) match frame 0 to 5e-12"
+    },
+    {
+      "path": "FinRay/results_approach1/mult64.00_scale1.00",
+      "case": "FinRay",
+      "group": "approach1",
+      "commit": "96af2b410edb70ba5dc97aaef111bc6d7c22e7e0",
+      "extra_files": [
+        {
+          "path": "common/ib_units.py",
+          "from_commit": "60ce2bfc9f2d32011332bc2064ac52508e9ef57b"
+        }
+      ],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 64.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 8.43,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 517,
+        "ref_frame": 842,
+        "sim_wall_time_s": 167.8,
+        "machine": null
+      },
+      "evidence": "initial points regenerated at 96af2b4 (+ common/ib_units.py, untracked then, identical from 60ce2bf on) match frame 0 to 5e-12"
+    },
+    {
+      "path": "FinRay/results_approach1/mult128.00_scale1.00",
+      "case": "FinRay",
+      "group": "approach1",
+      "commit": "96af2b410edb70ba5dc97aaef111bc6d7c22e7e0",
+      "extra_files": [
+        {
+          "path": "common/ib_units.py",
+          "from_commit": "60ce2bfc9f2d32011332bc2064ac52508e9ef57b"
+        }
+      ],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 128.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 8.91,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 954,
+        "ref_frame": 890,
+        "sim_wall_time_s": 293.0,
+        "machine": null
+      },
+      "evidence": "initial points regenerated at 96af2b4 (+ common/ib_units.py, untracked then, identical from 60ce2bf on) match frame 0 to 5e-12"
+    },
+    {
+      "path": "FinRay/results_approach2/wrong_actuation/mult0.00_scale1.00_20261013-105428",
+      "case": "FinRay",
+      "group": "approach2_wrong_actuation",
+      "commit": "0e6666d014c9d15d28e92ada398f4d9abad3be38",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 0.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 6.85,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 51,
+        "ref_frame": 684,
+        "sim_wall_time_s": 29.2,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "0e6666d + the run's code.diff: geometry/actuation/solver code identical to 0e6666d (diff only touched run_case.py and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/wrong_actuation/mult1.00_scale1.00_20261013-105459",
+      "case": "FinRay",
+      "group": "approach2_wrong_actuation",
+      "commit": "0e6666d014c9d15d28e92ada398f4d9abad3be38",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 1.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 6.83,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 58,
+        "ref_frame": 682,
+        "sim_wall_time_s": 32.0,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "0e6666d + the run's code.diff: geometry/actuation/solver code identical to 0e6666d (diff only touched run_case.py and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/wrong_actuation/mult8.00_scale1.00_20261013-105532",
+      "case": "FinRay",
+      "group": "approach2_wrong_actuation",
+      "commit": "0e6666d014c9d15d28e92ada398f4d9abad3be38",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 8.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 12.79,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 202,
+        "ref_frame": 1278,
+        "sim_wall_time_s": 66.0,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "0e6666d + the run's code.diff: geometry/actuation/solver code identical to 0e6666d (diff only touched run_case.py and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/wrong_actuation/mult32.00_scale1.00_20261013-105639",
+      "case": "FinRay",
+      "group": "approach2_wrong_actuation",
+      "commit": "0e6666d014c9d15d28e92ada398f4d9abad3be38",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 32.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 11.19,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 523,
+        "ref_frame": 1118,
+        "sim_wall_time_s": 151.3,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "0e6666d + the run's code.diff: geometry/actuation/solver code identical to 0e6666d (diff only touched run_case.py and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/wrong_actuation/mult64.00_scale1.00_20261013-105912",
+      "case": "FinRay",
+      "group": "approach2_wrong_actuation",
+      "commit": "0e6666d014c9d15d28e92ada398f4d9abad3be38",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 64.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 11.11,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 865,
+        "ref_frame": 1110,
+        "sim_wall_time_s": 243.0,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "0e6666d + the run's code.diff: geometry/actuation/solver code identical to 0e6666d (diff only touched run_case.py and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/wrong_actuation/mult128.00_scale1.00_20261013-110316",
+      "case": "FinRay",
+      "group": "approach2_wrong_actuation",
+      "commit": "0e6666d014c9d15d28e92ada398f4d9abad3be38",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 128.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 0.22,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 1489,
+        "ref_frame": 21,
+        "sim_wall_time_s": 422.5,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "0e6666d + the run's code.diff: geometry/actuation/solver code identical to 0e6666d (diff only touched run_case.py and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult0.00_scale1.00_20261014-113945",
+      "case": "FinRay",
+      "group": "approach2_Nx32",
+      "commit": "906dce42ca8e05f89b4a136130fc80a9ecc57d20",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 0.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 51,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 30.4,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to 906dce4 (diff only touched run_case.py, case_params.json and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult1.00_scale1.00_20261014-114017",
+      "case": "FinRay",
+      "group": "approach2_Nx32",
+      "commit": "906dce42ca8e05f89b4a136130fc80a9ecc57d20",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 1.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 58,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 32.1,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to 906dce4 (diff only touched run_case.py, case_params.json and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult8.00_scale1.00_20261014-114050",
+      "case": "FinRay",
+      "group": "approach2_Nx32",
+      "commit": "906dce42ca8e05f89b4a136130fc80a9ecc57d20",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 8.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 202,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 65.6,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to 906dce4 (diff only touched run_case.py, case_params.json and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult32.00_scale1.00_20261014-114157",
+      "case": "FinRay",
+      "group": "approach2_Nx32",
+      "commit": "906dce42ca8e05f89b4a136130fc80a9ecc57d20",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 32.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 523,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 148.0,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to 906dce4 (diff only touched run_case.py, case_params.json and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult64.00_scale1.00_20261014-114426",
+      "case": "FinRay",
+      "group": "approach2_Nx32",
+      "commit": "906dce42ca8e05f89b4a136130fc80a9ecc57d20",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 64.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 865,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 236.8,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to 906dce4 (diff only touched run_case.py, case_params.json and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult128.00_scale1.00_20261014-114824",
+      "case": "FinRay",
+      "group": "approach2_Nx32",
+      "commit": "906dce42ca8e05f89b4a136130fc80a9ecc57d20",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 128.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 1489,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 406.8,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to 906dce4 (diff only touched run_case.py, case_params.json and generated files)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult0.00_scale1.00_20261014-134803",
+      "case": "FinRay",
+      "group": "approach2_Nx32_extra",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 0.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 51,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 39.3,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult256.00_scale1.00_20261014-132729",
+      "case": "FinRay",
+      "group": "approach2_Nx32_extra",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 256.0,
+        "Nx": 32,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 2626,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 725.6,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult0.00_scale1.00_20261014-141507",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 0.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 14.81,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 105,
+        "ref_frame": 1480,
+        "sim_wall_time_s": 72.3,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult1.00_scale1.00_20261014-141742",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 1.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 133,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 68.6,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult8.00_scale1.00_20261014-141852",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 8.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 14.61,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 523,
+        "ref_frame": 1460,
+        "sim_wall_time_s": 176.0,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult32.00_scale1.00_20261014-142150",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 32.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 1489,
+        "ref_frame": 1499,
+        "sim_wall_time_s": 456.5,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult64.00_scale1.00_20261014-142928",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 64.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 0.2,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 2626,
+        "ref_frame": 19,
+        "sim_wall_time_s": 786.8,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult128.00_scale1.00_20261014-144305",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 128.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 0.17,
+        "last_output_time": 14.99,
+        "n_frames": 1500,
+        "n_points": 4759,
+        "ref_frame": 16,
+        "sim_wall_time_s": 1404.2,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/mult254.00_scale1.00_20261014-150804",
+      "case": "FinRay",
+      "group": "approach2_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 254.0,
+        "Nx": 64,
+        "dt": 0.0005,
+        "Tfinal": 15.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "diverged",
+        "first_nan_time": 0.11,
+        "last_output_time": 1.89,
+        "n_frames": 190,
+        "n_points": 8746,
+        "ref_frame": 10,
+        "sim_wall_time_s": 327.2,
+        "machine": null
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)",
+      "note": "original was stopped by hand at t=1.89 s after diverging at 0.11 s (record backfilled)"
+    },
+    {
+      "path": "FinRay/results_approach2/dt_critical_Nx64/dtcrit_Nx64_mult64_dt2.500e-04_20261014-152016",
+      "case": "FinRay",
+      "group": "approach2_dt_critical_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 64.0,
+        "Nx": 64,
+        "dt": 0.00025,
+        "Tfinal": 1.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 1.0,
+        "n_frames": 201,
+        "n_points": 2626,
+        "ref_frame": 200,
+        "sim_wall_time_s": 133.5,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/dt_critical_Nx64/dtcrit_Nx64_mult64_dt4.000e-04_20261014-152311",
+      "case": "FinRay",
+      "group": "approach2_dt_critical_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 64.0,
+        "Nx": 64,
+        "dt": 0.0004,
+        "Tfinal": 1.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 1.0,
+        "n_frames": 126,
+        "n_points": 2626,
+        "ref_frame": 125,
+        "sim_wall_time_s": 66.0,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/dt_critical_Nx64/dtcrit_Nx64_mult128_dt2.500e-04_20261014-152419",
+      "case": "FinRay",
+      "group": "approach2_dt_critical_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 128.0,
+        "Nx": 64,
+        "dt": 0.00025,
+        "Tfinal": 1.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 1.0,
+        "n_frames": 201,
+        "n_points": 4759,
+        "ref_frame": 200,
+        "sim_wall_time_s": 190.2,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "FinRay/results_approach2/dt_critical_Nx64/dtcrit_Nx64_mult128_dt4.000e-04_20261014-152733",
+      "case": "FinRay",
+      "group": "approach2_dt_critical_Nx64",
+      "commit": "fb3147bc5b80befc6f4975d5bd7676fef69f81bb",
+      "extra_files": [],
+      "geom_script": "FinRay_Geom.py",
+      "copy_files": [],
+      "post_scripts": [],
+      "params": {
+        "mult": 128.0,
+        "Nx": 64,
+        "dt": 0.0004,
+        "Tfinal": 1.0,
+        "mu": 0.001
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 1.0,
+        "n_frames": 126,
+        "n_points": 4759,
+        "ref_frame": 125,
+        "sim_wall_time_s": 118.8,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "906dce4 + the run's code.diff: geometry/actuation/solver code identical to fb3147b (the next commit)"
+    },
+    {
+      "path": "NACA0020_Wing/results/x1_dt5e-4_20261015-122956",
+      "case": "NACA0020_Wing",
+      "group": "wing",
+      "commit": "10e8e4dab9b770972763635854303ec0b25d158b",
+      "extra_files": [],
+      "geom_script": "Wing_Geom.py",
+      "copy_files": [
+        "wing.vertex",
+        "wing.target"
+      ],
+      "post_scripts": [
+        "analyze_run.py"
+      ],
+      "params": {
+        "mult": 4.0,
+        "Nx": 192,
+        "dt": 0.0002,
+        "Tfinal": 10.0,
+        "mu": 0.030069000000000002
+      },
+      "original": {
+        "status": "completed",
+        "first_nan_time": null,
+        "last_output_time": 9.98,
+        "n_frames": 500,
+        "n_points": 2520,
+        "ref_frame": 499,
+        "sim_wall_time_s": 1902.4,
+        "machine": "Constances-MacBook.local"
+      },
+      "evidence": "10e8e4d + the run's code.diff: diff only touched case_params.json, input2d and verify_structure.py"
+    }
+  ]
+}
