@@ -14,6 +14,8 @@ If you already cloned without `--recurse-submodules`, fetch IB2d with `git submo
 
 Each case finds the solver relative to its own location (`external/IB2d/pyIB2d/IBM_Blackbox`).
 
+To run on the University of Edinburgh's ICF cluster (sweeps as Slurm job arrays, storage, conventions), see [CLUSTER.md](CLUSTER.md).
+
 ## Layout
 
 ```

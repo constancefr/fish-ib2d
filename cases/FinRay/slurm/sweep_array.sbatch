@@ -14,7 +14,7 @@
 #
 #SBATCH --partition=ICF-Free
 #SBATCH --cpus-per-task=1          # IB2d is single-threaded
-#SBATCH --mem=4G                   # check real usage with `seff <jobid>_<task>`
+#SBATCH --mem=4G                   # check real usage: sacct -j <jobid> --format=JobID,Elapsed,MaxRSS
 #SBATCH --time=02:00:00
 #SBATCH --signal=B:TERM@300        # warn the script 5 min before the time limit, to copy back
 # --array, --job-name and --output are set by submit_sweep.sh
