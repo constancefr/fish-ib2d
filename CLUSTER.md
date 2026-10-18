@@ -58,16 +58,16 @@ pip install -r ~/fish-ib2d/requirements.txt     # includes meshpy
 
 ## 4. Running a FinRay sweep (the normal way)
 
-The scripts are in `cases/FinRay/slurm/`. Each case of `make_sweep()` (in `cases/FinRay/run_case.py`) becomes one task of a Slurm job array. Each task runs on a compute node, in a private copy of the code on that node's `/disk/scratch`. When it ends, the task copies its run folder back to `~/sim_data`.
+The scripts are in `cases/FinRay/slurm/`. Each case of a sweep (a function in `cases/FinRay/sweeps.py`) becomes one task of a Slurm job array. Each task runs on a compute node, in a private copy of the code on that node's `/disk/scratch`. When it ends, the task copies its run folder back to `~/sim_data`.
 
 ### 4.1 Set up the sweep
 
 1. Make sure the repo is on the code you want: `cd ~/fish-ib2d && git status && git log --oneline -1`.
-2. Set the base parameters in `cases/FinRay/case_params.json`. That includes `input2d.Tfinal` and `dt`, which `run_case.py` copies into `input2d`.
-3. Set what varies in `make_sweep()` in `cases/FinRay/run_case.py` (`multipliers`, `scales`).
+2. Set the base parameters in `cases/FinRay/case_params.json`: the regime (`actuation.FREQUENCY`, `AMPLITUDE`), the run length (`run_length`; `input2d.Tfinal: null` means Tfinal = cycles / frequency), and `input2d` values such as `dt`, which `run_case.py` copies into `input2d`.
+3. Pick the sweep, or add one, in `cases/FinRay/sweeps.py`: one function per sweep, named by what it is for (e.g. `stageC0`). Existing: `base` (the base case alone), `smoke` (the base case for 0.05 s), `density`.
 4. Check the list of cases without running anything:
    ```bash
-   cd ~/fish-ib2d/cases/FinRay && python run_case.py --list
+   cd ~/fish-ib2d/cases/FinRay && python run_case.py --sweep <sweep_def> --list
    ```
 
 Uncommitted changes are fine. They're recorded with every run (see 4.4). Still, prefer committing the code you run.
@@ -75,15 +75,16 @@ Uncommitted changes are fine. They're recorded with every run (see 4.4). Still, 
 ### 4.2 Submit (on the head node)
 
 ```bash
-~/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <sweep_name>
+~/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <sweep_name> <sweep_def>
 ```
 
+- **`<sweep_def>`** is the function in `sweeps.py` (step 3). It's saved as `sweep_def.txt` in the sweep folder and in every run's `run_info.json` (`inputs.sweep`).
 - **`<sweep_name>` must be new.** The script refuses a name that already exists in `~/sim_data/fish-ib2d/FinRay/`, so earlier results are never overwritten. Use a name that says what the sweep is, e.g. `mult0-256_Nx32_T15`.
 - **It records the code at submit time.** It copies the code to `<sweep>/snapshot/` and saves the git state there. Editing the repo afterwards doesn't affect the sweep, even if it's still queued.
 - **It submits two jobs.**
   - The **array job**: one task per case, at most 8 running at once.
   - The **index job**: it waits until every task has ended, finished or not, then builds `index.csv` and `index_full.csv`.
-- **Optional settings** go before the command, e.g. `MAX_PARALLEL=4 ~/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <name>`:
+- **Optional settings** go before the command, e.g. `MAX_PARALLEL=4 ~/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <name> <sweep_def>`:
   - `MAX_PARALLEL`: the number of cases running at once (default 8);
   - `CONDA_ENV`: the conda environment the jobs use (default `ib2d`);
   - `DATA_ROOT`: where sweeps are stored (default `~/sim_data/fish-ib2d/FinRay`).
@@ -107,13 +108,15 @@ scancel <jobid>                                   # cancel the whole array (or <
 ~/sim_data/fish-ib2d/FinRay/<sweep>/
 ├── snapshot/                     code as submitted (+ code_provenance.json / .diff: git state at submit)
 ├── cases.txt                     array task number -> case name
+├── sweep_def.txt                 the sweeps.py function used
 ├── logs/                         <jobid>_<task>.out per task, index_<jobid>.out
 └── results/
     ├── index.csv                 one row per run, chosen columns (INDEX_COLUMNS in run_case.py)
     ├── index_full.csv            one row per run, every field
     ├── <case>_<YYYYmmdd-HHMMSS>/ one folder per run:
     │   ├── viz_IB2d/             .vtk frames (for VisIt / analysis)
-    │   ├── run_info.json         inputs, mesh stats, timing, outcome, code version, machine
+    │   ├── run_info.json         inputs, mesh stats, timing, outcome, analysis (postprocess.py), code version, machine
+    │   ├── tip_trajectory.csv, fluid_energy.csv   time series from postprocess.py
     │   ├── case_params.json, input2d   the exact inputs used
     │   └── code.diff             uncommitted changes at submit time, if there were any
     └── _incomplete_task<N>/      only if a task was killed before run_case.py could save its output
@@ -129,11 +132,11 @@ cd ~/fish-ib2d/cases/FinRay && python run_case.py index --all ~/sim_data/fish-ib
 ### 4.5 Test before a big sweep
 
 Never start a large sweep with untested settings. First:
-1. Temporarily set `make_sweep()` to one case and `Tfinal` to the real value. Submit it as e.g. `test_<something>`.
+1. Submit a one-case sweep at the real `Tfinal` (e.g. the `base` sweep, or a one-case sweep added to `sweeps.py`) as e.g. `test_<something>`.
 2. Check the log, `outcome.status` in `run_info.json`, and the time and memory used (`sacct`, 4.3). Then set the resources (4.2).
-3. Undo the temporary edits (`git restore cases/FinRay/run_case.py`) and submit the real sweep.
+3. Submit the real sweep.
 
-For a very quick check that the code runs at all, use a short `Tfinal` (e.g. `0.05`) in a one-case sweep, or in an interactive session (§5).
+For a very quick check that the code runs at all, use the `smoke` sweep (0.05 s), or an interactive session (§5).
 
 ## 5. Interactive runs (testing, debugging)
 
@@ -141,11 +144,11 @@ For a very quick check that the code runs at all, use a short `Tfinal` (e.g. `0.
 srun -p Interactive --cpus-per-task=1 --mem=4G --time=00:30:00 --pty bash
 source /opt/conda/etc/profile.d/conda.sh && conda activate ib2d
 cd ~/fish-ib2d/cases/FinRay
-python run_case.py --case 0          # one case; or plain `python run_case.py` for the whole sweep
+python run_case.py --sweep smoke --case 0   # one case; without --case: the whole sweep
 exit                                 # give the node back as soon as you're done
 ```
 
-Runs started this way write to `cases/FinRay/results_approach2/` in the repo, on the shared filesystem. That's fine for tests, but use `submit_sweep.sh` for real sweeps. For the geometry alone, run `MPLBACKEND=Agg python FinRay_Geom.py` (it writes `finray.*`, `mesh_info.json` and `geometry_preview.png`).
+Runs started this way write to `cases/FinRay/results_approach2/` in the repo, on the shared filesystem. That's fine for tests, but use `submit_sweep.sh` for real sweeps. For the geometry alone, run `MPLBACKEND=Agg python FinRay_Geom.py` (it writes `finray.*`, `mesh_info.json` and `geometry_preview.png`). The fluid-free stiffness calibration (`MPLBACKEND=Agg python verify_structure.py`, seconds to minutes) also belongs here, not on the head node.
 
 ## 6. Movies and analysis
 
@@ -176,9 +179,9 @@ Runs started this way write to `cases/FinRay/results_approach2/` in the repo, on
 ## Rules for coding agents
 
 1. **Never run simulations, geometry builds or tests that use real CPU on the head node.** Run them with `sbatch`, or with `srun -p Interactive` for short checks. Light commands are fine on the head node: `git`, editing, `--list`, `submit_sweep.sh`, reading logs.
-2. **Ask the user before submitting any job**, before cancelling jobs, and before deleting or moving anything in `~/sim_data`. Use `sbatch --test-only` to check a job without queuing it.
+2. **Don't submit jobs yourself (the user's preference): hand the user an ordered plan** of what to submit (exact commands, what each job runs, which results to check). Ask before cancelling jobs, and before deleting or moving anything in `~/sim_data`. Use `sbatch --test-only` to check a job without queuing it.
 3. **Always set `--partition=ICF-Free`**, 1 CPU and no GPU for IB2d. Keep at most about 8 tasks running at once unless the user agrees otherwise.
 4. **Don't write large output into the repo.** Real sweeps go through `submit_sweep.sh` to `~/sim_data`.
 5. **Check before overwriting:** sweep names must be new, and never delete run folders to make space without asking.
-6. **Before committing,** check that `git status` doesn't include generated files or temporary test values in `case_params.json`, `input2d` or `make_sweep()`. Ask before pushing.
+6. **Before committing,** check that `git status` doesn't include generated files or temporary test values in `case_params.json`, `input2d` or `sweeps.py`. Ask before pushing.
 7. **Report outcomes from the files,** not from the exit code alone: `run_info.json` (`outcome.status`, `first_nan_time`), the job log, and `sacct`. A run that diverged still exits normally.

@@ -71,7 +71,7 @@ def _loop_segments(loop):
 
 def fill_polygon_with_halton(exterior, spacing, inner_loops=None,
                               density_multiplier=1.0, min_boundary_gap=None,
-                              keep_out_segments=None):
+                              keep_out_segments=None, seed=None):
     '''
     Fills the polygon (exterior minus inner_loops) with Halton-sampled
     interior points: round(density_multiplier * area / spacing**2) of them,
@@ -88,6 +88,11 @@ def fill_polygon_with_halton(exterior, spacing, inner_loops=None,
     keep_out_segments: extra (a, b) segments inside the polygon that fill
         points also keep min_boundary_gap from, e.g. an internal line that
         will be passed to triangulate_with_holes as extra_segments.
+    seed: None (default) uses the plain, unscrambled Halton sequence, so the
+        fill is the same every time. An integer uses a scrambled Halton
+        sequence with that seed: the same even coverage, but different point
+        positions per seed (to measure how much results depend on where the
+        points happen to fall).
 
     Candidates are drawn in the polygon's x/y bounding box and kept only if
     inside and far enough from the boundary (rejection sampling). Keeping
@@ -108,8 +113,11 @@ def fill_polygon_with_halton(exterior, spacing, inner_loops=None,
 
     lo, hi = exterior.min(axis=0), exterior.max(axis=0)
     batch = int(np.ceil(2 * n * np.prod(hi - lo) / area))  # ~2x the candidates we expect to need
-    sampler = qmc.Halton(d=2, scramble=False)
-    sampler.fast_forward(1)  # index 0 is the origin (a degenerate point)
+    if seed is None:
+        sampler = qmc.Halton(d=2, scramble=False)
+        sampler.fast_forward(1)  # index 0 is the origin (a degenerate point)
+    else:
+        sampler = qmc.Halton(d=2, scramble=True, seed=seed)
 
     segments = [s for l in loops for s in _loop_segments(l)]
     segments += [(np.asarray(a, dtype=float), np.asarray(b, dtype=float))

@@ -20,7 +20,10 @@ Parameter-sweep driver for the FinRay IB2d example. Configure one or more
      case, so a run leaves the tracked inputs unchanged
 
 Steps 1-7 for one case are common/run_records.run_case() (shared with
-NACA0020_Wing); this file only defines the sweep and the index columns.
+NACA0020_Wing). After each run, postprocess.py adds the tip and fluid
+measures to its run_info.json. The sweeps themselves are defined in
+sweeps.py and chosen with --sweep; this file runs them and sets the index
+columns.
 
 To run one case per Slurm array task on the cluster, see slurm/submit_sweep.sh
 (`--list` and `--case N` below).
@@ -45,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
 import run_records as rr
+import sweeps
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EXAMPLE_DIR / "results_approach2"
@@ -56,15 +60,17 @@ RESULTS_DIR = EXAMPLE_DIR / "results_approach2"
 # holds them constant: they are what differs between sweeps.
 INDEX_COLUMNS = [
     # identity
-    "folder", "run_id", "timing.start", "backfilled",
+    "folder", "run_id", "inputs.sweep", "timing.start", "backfilled",
     "provenance.commit", "provenance.branch", "provenance.uncommitted_changes",
     # parameters
     "inputs.geom.ribbon_fill_density_multiplier", "inputs.geom.ribbon_fill_spacing",
+    "inputs.geom.halton_seed",
     "inputs.geom.ribbon_fill_stiffness_scale", "inputs.geom.E_material",
     "inputs.geom.wall_thickness", "inputs.geom.actuation_patch_radius",
     "inputs.geom.target_stiffness_factor",
     "inputs.actuation.FREQUENCY", "inputs.actuation.AMPLITUDE",
     "inputs.actuation.STIFFNESS_RAMP_TIME",
+    "inputs.run_length.transient_cycles", "inputs.run_length.measured_cycles",
     "inputs.input2d.mu", "inputs.input2d.rho", "inputs.input2d.dt", "inputs.input2d.Tfinal",
     "inputs.input2d.Nx", "inputs.input2d.Ny", "inputs.input2d.Lx", "inputs.input2d.Ly",
     "inputs.input2d.supp",
@@ -78,6 +84,11 @@ INDEX_COLUMNS = [
     # outcome
     "outcome.status", "outcome.first_nan_time", "outcome.last_output_time",
     "outcome.interrupted",
+    # analysis (postprocess.py)
+    "analysis.tip.n_cycles", "analysis.tip.y_amplitude", "analysis.tip.y_amplitude_cv",
+    "analysis.tip.y_mean", "analysis.tip.x_amplitude", "analysis.tip.phase_lag_deg",
+    "analysis.fluid.gs_ke_growth_rate", "analysis.fluid.gs_ke_fraction_end",
+    "analysis.fluid.u_max", "analysis.fluid.cell_re_max",
 ]
 
 
@@ -110,47 +121,7 @@ def _load_base_case():
 BASE_CASE = _load_base_case()
 
 
-def make_sweep():
-    '''
-    2D sweep over ribbon_fill_density_multiplier x ribbon_fill_stiffness_scale,
-    everything else held fixed at BASE_CASE. Each case is named
-    "mult<M>_scale<S>" and lands in its own timestamped folder
-    results/mult<M>_scale<S>_<YYYYmmdd-HHMMSS>/ (see run_case()), so no run
-    ever overwrites another.
-
-    NOTE (see NOTES.md): scale=1.0 (the fill-stiffness formula's literal,
-    uncalibrated value) is known to go NaN by t~3.3-3.6s at
-    ribbon_fill_density_multiplier=1.0 -- higher multipliers add more,
-    similarly-stiff springs and are expected to be *more* prone to this, not
-    less. run_case() below flags (but does not skip) any case that went NaN,
-    and records when (run_info.json, results/index.csv).
-    '''
-    # multipliers = [0.0, 1.0, 4.0, 8.0]
-    # scales = [0.05, 0.1, 0.3, 1.0]
-    # multipliers = [0.0]
-    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0, 128.0, 256.0]
-    scales = [1.0]
-
-    # ribbon_fill_stiffness_scale now scales EVERY spring (rails included),
-    # so it matters at multiplier 0 too -- sweep it at every density.
-    combos = [(mult, scale) for mult in multipliers for scale in scales]
-
-    cases = []
-    for mult, scale in combos:
-        case = json.loads(json.dumps(BASE_CASE))  # deep copy of a known-clean base,
-        # NOT the on-disk case_params.json -- reading that back in would also
-        # pick up whatever "case_name"/one-off keys the *previous* case run
-        # happened to leave behind, silently carrying them into this one.
-        case["case_name"] = f"mult{mult:.2f}_scale{scale:.2f}"
-        # NOTE: both must be under "geom" -- FinRay_Geom.py only reads
-        # case_params.json["geom"][...]. A top-level key here is silently
-        # ignored (this bit us once already: every case in a sweep would
-        # quietly reuse whatever value was already baked into
-        # case_params.json's "geom" section instead of the intended one).
-        case["geom"]["ribbon_fill_density_multiplier"] = mult
-        case["geom"]["ribbon_fill_stiffness_scale"] = scale
-        cases.append(case)
-    return cases
+POST_SCRIPTS = ("postprocess.py",)
 
 
 def _interrupt(signum, frame):
@@ -159,27 +130,30 @@ def _interrupt(signum, frame):
 
 def main():
     '''
-    No arguments: run every case in make_sweep() one after another, then
+    No arguments: run every case of the sweep one after another, then
                   rebuild the index (local use).
+    --sweep NAME: the sweep in sweeps.py to run (default: base, the base case
+                  alone)
     --list:       print "<N> <case_name>" for each case and exit, without
                   running anything -- slurm/submit_sweep.sh uses this to size
                   the job array.
-    --case N:     run only case N of make_sweep() (0-based), without rebuilding
+    --case N:     run only case N of the sweep (0-based), without rebuilding
                   the index -- one Slurm array task per case, see
                   slurm/sweep_array.sbatch; submit_sweep.sh queues a follow-up
                   job that builds the sweep's index once every case is done.
     '''
     import argparse
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--sweep", default="base", metavar="NAME",
+                        help=f"sweep to run, from sweeps.py: {', '.join(sweeps.SWEEPS)}")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--list", action="store_true",
                        help="print the number and name of each case, then exit")
     group.add_argument("--case", type=int, metavar="N",
-                       help="run only case N of make_sweep() (0-based)")
+                       help="run only case N of the sweep (0-based)")
     args = parser.parse_args()
 
-    cases = make_sweep()
-    # cases = [BASE_CASE]    # for initial testing
+    cases = sweeps.build(args.sweep, BASE_CASE)
 
     if args.list:
         for i, case in enumerate(cases):
@@ -194,7 +168,8 @@ def main():
     signal.signal(signal.SIGTERM, _interrupt)  # an IDE's stop button (or Slurm): treat like Ctrl+C
     try:
         for case in cases:
-            case_dir = rr.run_case(case, EXAMPLE_DIR, RESULTS_DIR, "FinRay_Geom.py")
+            case_dir = rr.run_case(case, EXAMPLE_DIR, RESULTS_DIR, "FinRay_Geom.py",
+                                   post_scripts=POST_SCRIPTS)
 
             # Optional: chain straight into VisIt for a movie per case.
             # movie_path = case_dir / f"{case['case_name']}.mp4"

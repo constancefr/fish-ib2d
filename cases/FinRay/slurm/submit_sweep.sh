@@ -1,8 +1,12 @@
 #!/bin/bash
-# Submit run_case.py's make_sweep() as a Slurm job array, one task per case.
+# Submit one sweep of sweeps.py as a Slurm job array, one task per case.
 #
 # Usage (on the head node, from anywhere):
-#   cases/FinRay/slurm/submit_sweep.sh <sweep_name>
+#   cases/FinRay/slurm/submit_sweep.sh <sweep_name> <sweep_def>
+#
+#   sweep_name  new folder name for this submission, e.g. stageC0_Nx64
+#   sweep_def   which function in cases/FinRay/sweeps.py defines the cases
+#               (list them: cd cases/FinRay && python run_case.py --sweep <def> --list)
 #
 # Optional environment variables:
 #   MAX_PARALLEL  cases allowed to run at once (default 8). Change a submitted
@@ -16,17 +20,19 @@
 #               Its code_provenance.json (+ .diff) holds the repo's git state at
 #               submit time, which every run's run_info.json records
 #   cases.txt   array task number -> case name
+#   sweep_def.txt  the sweeps.py function used
 #   logs/       one Slurm log per task (<jobid>_<task>.out), plus the index job's
 #   results/    one run folder per case, filled in as tasks finish; index.csv and
 #               index_full.csv are built by a follow-up job once all tasks end
 
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
+if [ $# -ne 2 ]; then
     sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'   # the header comment
     exit 1
 fi
 SWEEP_NAME="$1"
+export SWEEP_DEF="$2"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
@@ -35,6 +41,11 @@ SWEEP_DIR="${DATA_ROOT}/${SWEEP_NAME}"
 MAX_PARALLEL="${MAX_PARALLEL:-8}"
 export CONDA_ENV="${CONDA_ENV:-ib2d}"
 
+# Check the sweep definition before creating anything
+if ! (cd "${REPO}/cases/FinRay" && python3 run_case.py --sweep "${SWEEP_DEF}" --list > /dev/null); then
+    echo "Error: sweep definition '${SWEEP_DEF}' failed (see above)." >&2
+    exit 1
+fi
 if [ -e "${SWEEP_DIR}" ]; then
     echo "Error: ${SWEEP_DIR} already exists -- pick another sweep name." >&2
     exit 1
@@ -54,21 +65,22 @@ mkdir -p "${SWEEP_DIR}/snapshot" "${SWEEP_DIR}/logs" "${SWEEP_DIR}/results"
 
 python3 "${REPO}/common/run_records.py" provenance "${SWEEP_DIR}/snapshot" > /dev/null
 
-(cd "${SWEEP_DIR}/snapshot/cases/FinRay" && python3 run_case.py --list) > "${SWEEP_DIR}/cases.txt"
+(cd "${SWEEP_DIR}/snapshot/cases/FinRay" && python3 run_case.py --sweep "${SWEEP_DEF}" --list) > "${SWEEP_DIR}/cases.txt"
+echo "${SWEEP_DEF}" > "${SWEEP_DIR}/sweep_def.txt"
 N_CASES=$(wc -l < "${SWEEP_DIR}/cases.txt")
 if [ "${N_CASES}" -eq 0 ]; then
-    echo "Error: make_sweep() returned no cases." >&2
+    echo "Error: sweep '${SWEEP_DEF}' returned no cases." >&2
     exit 1
 fi
 
-echo "Sweep '${SWEEP_NAME}': ${N_CASES} case(s), at most ${MAX_PARALLEL} at a time"
+echo "Sweep '${SWEEP_NAME}' (sweeps.py: ${SWEEP_DEF}): ${N_CASES} case(s), at most ${MAX_PARALLEL} at a time"
 cat "${SWEEP_DIR}/cases.txt"
 
 ARRAY_ID=$(sbatch --parsable \
     --array="0-$((N_CASES - 1))%${MAX_PARALLEL}" \
     --job-name="finray-${SWEEP_NAME}" \
     --output="${SWEEP_DIR}/logs/%A_%a.out" \
-    --export=ALL,SWEEP_DIR="${SWEEP_DIR}" \
+    --export=ALL,SWEEP_DIR="${SWEEP_DIR}",SWEEP_DEF="${SWEEP_DEF}" \
     "${SCRIPT_DIR}/sweep_array.sbatch")
 echo "Submitted array job ${ARRAY_ID}"
 

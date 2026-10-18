@@ -26,7 +26,7 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 ## 2. Pipeline
 
 **Sweep driver: `run_case.py`**
-1. Loads `case_params.json` as `BASE_CASE`; `make_sweep()` varies `ribbon_fill_density_multiplier` over `[0, 1, 8, 32, 64]` × `ribbon_fill_stiffness_scale` over `[1.0]`.
+1. Loads `case_params.json` as `BASE_CASE` and builds the cases of one sweep from **`sweeps.py`**, chosen with `--sweep NAME` (default `base`, the base case alone; also `smoke` (0.05 s), `density`). A sweep is a function that returns a list of cases; `sweeps.grid(base, {"input2d.mu": [...], ...})` makes a cartesian product and names each case after what it varies (`mu0.003`, `Nx64_mult8`, ...). An unknown parameter path is an error, not silently ignored. `sweeps.finalize()` then fills in derived values: **`input2d.Tfinal: null` means `(run_length.transient_cycles + measured_cycles) / FREQUENCY`** (8 s at 0.5 Hz), so editing the regime in `case_params.json` and resubmitting reruns a sweep consistently. Each case records its sweep name (`inputs.sweep`).
 2. For each case, `common/run_records.run_case()`: writes `case_params.json`, patches `input2d` values by regex, runs `FinRay_Geom.py` then `main2d.py` **as subprocesses** (needed: `update_Target_Point_Positions.py` caches its baseline in module globals), moves outputs to a new folder `results/<case_name>_<YYYYmmdd-HHMMSS>/` (a rerun never overwrites an earlier run) with copies of `case_params.json` and `input2d`.
 3. Writes that folder's **`run_info.json`**, the record of the run (`common/run_records.py`):
    - `inputs`: `geom` and `actuation` from `case_params.json`, plus every `input2d` value IB2d read.
@@ -34,8 +34,9 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
    - `timing`: start/end, geometry and simulation wall time, steps, ms per step.
    - `outcome`: `completed` / `diverged` / `incomplete` / `no output`, first NaN time, last output time, exit code, `interrupted`. A diverged case is flagged, not skipped. A run stopped with Ctrl+C or an IDE's stop button (SIGTERM) is still archived and recorded (`interrupted: true`), then the sweep stops and the index is rebuilt. Only a hard kill (`kill -9`) leaves `viz_IB2d/` behind; `run_case` then refuses to start until it is moved into its run folder (and backfilled) or deleted.
    - `provenance`, captured at launch: commit, branch, IB2d submodule commit, package versions, machine. With uncommitted changes, the full diff (plus small untracked files) is saved as `code.diff` in the run folder, so quick tests before a commit stay reproducible. Generated files (`finray.*`, images) are left out of it: they follow from the code and `case_params.json`, and including them made each diff ~2 MB.
-4. After the sweep (even if a case crashed), rebuilds **`results/index.csv`**: one row per `run_info.json` at any depth (runs grouped into subfolders included; the `folder` column gives each run's path), with the ~45 analysis columns listed in `INDEX_COLUMNS` (`run_case.py`): identity and code version, every model parameter (kept even when a sweep holds it constant, since that is what differs between sweeps), mesh metrics, timing, outcome. Unused IB2d features, output switches and package versions stay in `run_info.json` and in `index_full.csv` (every field). Generated, never edited by hand: rebuild with `python run_case.py index [--all] [DIR ...]`.
-5. Runs made before records existed: `python ../../common/run_records.py backfill <run folder>...` writes a record from the folder's `case_params.json`/`input2d` and its output (mesh and code version unknown; start and wall time estimated from file modification times, dropped if the folder was copied). Done on 2026-10-13 for `results/`, `results_approach1/` and `old_results/FinRay_results_0/` (one folder there skipped: no `input2d`).
+4. Runs **`postprocess.py <run folder>`**, which adds `analysis` to `run_info.json` and writes `tip_trajectory.csv` and `fluid_energy.csv` into the run folder. Tip = the outer tip vertex (rest point with the largest x). Over the measured cycles (after the transient cycles): `tip.y_amplitude` (mean half peak-to-peak of dy), `y_amplitude_cv` (cycle-to-cycle spread), `y_mean`, `x_amplitude`, `phase_lag_deg` (lag of dy behind the actuation reference d_bottom − d_top at the actuation frequency; ~0 = quasi-static, > 0 = tip lags). Fluid: `gs_ke_growth_rate` (slope of ln of the grid-scale kinetic energy, i.e. what is left after a 3×3 box average, over the measured cycles; > 0 = grid noise growing), `gs_ke_fraction_end`, `u_max`, `cell_re_max`. Re-runnable on old runs: `python postprocess.py <run folder>...`, then rebuild the index. Checked on synthetic data with known lag, amplitude and growth rate (exact).
+5. After the sweep (even if a case crashed), rebuilds **`results/index.csv`**: one row per `run_info.json` at any depth (runs grouped into subfolders included; the `folder` column gives each run's path), with the ~45 analysis columns listed in `INDEX_COLUMNS` (`run_case.py`): identity and code version, every model parameter (kept even when a sweep holds it constant, since that is what differs between sweeps), mesh metrics, timing, outcome. Unused IB2d features, output switches and package versions stay in `run_info.json` and in `index_full.csv` (every field). Generated, never edited by hand: rebuild with `python run_case.py index [--all] [DIR ...]`.
+6. Runs made before records existed: `python ../../common/run_records.py backfill <run folder>...` writes a record from the folder's `case_params.json`/`input2d` and its output (mesh and code version unknown; start and wall time estimated from file modification times, dropped if the folder was copied). Done on 2026-10-13 for `results/`, `results_approach1/` and `old_results/FinRay_results_0/` (one folder there skipped: no `input2d`).
 
 **Geometry: `FinRay_Geom.py` → `FinRay_Geom()`**
 1. Parameters: grid (`Nx=32, Lx=1` → `dx=1/32`, `ds=dx/2=15.625 mm`), material and fill settings from `case_params.json["geom"]` (defaults in code).
@@ -57,6 +58,8 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 
 **Fluid-free check: `verify_ribbon_fill.py`** builds the mesh at several densities and checks point-count scaling and degenerate springs. It does **not** calibrate stiffness.
 
+**Stiffness calibration: `verify_structure.py`** (stage B of `EXPERIMENT_PLAN.md`; modelled on the wing's). A straight wall strip meshed by the fin's rules (edge spacing h, Halton fill, the fin's boundary gap, tributary springs, target clamp at x = 0), end force, linear sparse static solve at scale 1, compared with Timoshenko (plane strain, ν = 0.499 by default) → `scale_tip` and `scale_fit` (centreline least squares over 0.1L-L). Defaults: the side wall (138.4 mm) and the shortest ray (16.9 mm). Options: `--mults`, `--seeds none,0,1`, `--nx`, `--plane`, `--ib2d-check` (IB2d's force routines must balance the load), `--out` CSV. Only h matters (ds cancels).
+
 ### Parameters (`case_params.json`, current values)
 
 | Key | Value | Meaning |
@@ -64,15 +67,17 @@ Last reorganised 2026-10-08. Sections 2-3 describe the code as it is; section 5 
 | `geom.E_material` | 0.74e6 Pa | Young's modulus (source unknown, see §4) |
 | `geom.wall_thickness` | 3.96 mm | wall width (real build) |
 | `geom.extrude_depth` | 0.027 m | real fin depth. **Not used by the simulation** (2D = per unit depth); only for scaling per-depth forces to 3D (F_3D ≈ F_2D · depth) |
-| `geom.ribbon_fill_density_multiplier` | 64 | fill points = round(mult · tail area / ds²); edge points every ds/√mult |
+| `geom.ribbon_fill_density_multiplier` | 8 | fill points = round(mult · tail area / ds²); edge points every ds/√mult |
 | `geom.ribbon_fill_stiffness_scale` | 1.0 | multiplies **every** spring (calibration knob α) |
 | `geom.ribbon_fill_spacing` | null → ds | Halton spacing |
+| `geom.halton_seed` | null | null = unscrambled Halton (the same fill every time); an integer = scrambled Halton with that seed (mesh-noise studies) |
 | `geom.actuation_patch_radius` | null → wall_thickness | actuation patch radius |
 | `geom.target_stiffness_factor` | 15 | k_Target / max incident spring stiffness |
-| `actuation.FREQUENCY` | 0.1 Hz | (code default 1.0) |
-| `actuation.AMPLITUDE` | 0.01 m | corner push in +x |
+| `actuation.FREQUENCY` | 0.5 Hz | the real actuator (code default 1.0) |
+| `actuation.AMPLITUDE` | 0.03 m | corner push in +x |
 | `actuation.STIFFNESS_RAMP_TIME` | 0.2 s | target stiffness ramps 0 → full |
-| `input2d` | `mu=1e-3, rho=1000 (water), dt=5e-4, Tfinal=15, Nx=Ny=32, Lx=Ly=1, supp=4` | springs=1, target_pts=1, update_target=1, beams=0 |
+| `run_length` | 1 transient + 3 measured cycles | `Tfinal` = 4/f when `input2d.Tfinal` is null |
+| `input2d` | `mu=1e-3, rho=1000 (water), dt=5e-4, Tfinal=null (derived), Nx=Ny=32, Lx=Ly=1, supp=4` | springs=1, target_pts=1, update_target=1, beams=0. Nx, ×8 and dt are placeholders: each stage's sweep sets them |
 
 ## 3. Current model and why
 

@@ -65,6 +65,9 @@ def FinRay_Geom():
     fill_density_multiplier = _geom.get('ribbon_fill_density_multiplier', 1.0) 
         # scales number of interior points (0 = no fill, 1 = same density as ds, >1 = denser)
         # TODO: what does it actually scale? fill_spacing? is 1 really the same density as ds??
+    halton_seed = _geom.get('halton_seed', None)
+        # None = the unscrambled Halton fill (the same points every time); an
+        # integer = scrambled Halton with that seed (mesh-noise studies)
     stiffness_scale = _geom.get('ribbon_fill_stiffness_scale', 1.0)
         # scales the stiffness of EVERY spring (outline edges included) -- the single
         # calibration multiplier alpha (1.0 = the formula's literal value,
@@ -77,7 +80,7 @@ def FinRay_Geom():
     # Build the mesh: one outline, one fill, one triangulation
     t_start = time.perf_counter()
     xLag, yLag, triangles, n_boundary, baseCornerIdx, outer, windows = \
-        build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier)
+        build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier, halton_seed)
 
     #-------------------------------------------------------------------
     # Build springs
@@ -104,6 +107,7 @@ def FinRay_Geom():
     k = np.array(list(edge_k.values()))
     mesh_info = dict(
         ds=ds, fill_spacing=fill_spacing, fill_density_multiplier=fill_density_multiplier,
+        halton_seed=halton_seed,
         edge_spacing=fill_spacing / np.sqrt(max(fill_density_multiplier, 1.0)),
         n_edge_points=n_boundary,
         n_fill_points_requested=int(round(fill_density_multiplier * tail_area / fill_spacing ** 2)),
@@ -272,7 +276,7 @@ def _tail_outline(wall_thickness):
     return outer, windows
 
 
-def build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier):
+def build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier, halton_seed=None):
     '''
     Meshes the whole tail at once: points every ~h along the outline and
     every window, Halton fill inside, one constrained triangulation over all
@@ -293,7 +297,8 @@ def build_Tail_Mesh(ds, wall_thickness, fill_spacing, fill_density_multiplier):
     h = fill_spacing / np.sqrt(max(fill_density_multiplier, 1.0))
     loops = [mu.resample_loop(p, h) for p in [outer] + windows]
     fill = mu.fill_polygon_with_halton(outer, fill_spacing, inner_loops=windows,
-                                       density_multiplier=fill_density_multiplier)
+                                       density_multiplier=fill_density_multiplier,
+                                       seed=halton_seed)
     pts, _, triangles = mu.triangulate_with_holes(loops[0], loops[1:], np.vstack(loops), fill)
 
     corners = (outer[0], outer[-1])   # outer outline's base corners (bottom, top)

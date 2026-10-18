@@ -49,7 +49,7 @@ one parameter. The free one is the mesh spacing relative to the grid cell (h/dx)
 | stage | what | design | runs (est.) | output |
 |---|---|---|---|---|
 | **A. Tooling** | see list below | — | — | the measures and sweep definitions every later stage needs |
-| **B. Structure only (no fluid): convergence + calibration** | density ×1 → ×1024 in factors of 4 (h halves each step); 3-5 Halton seeds each; static load | port the wing's fluid-free static solver (`cases/NACA0020_Wing/verify_structure.py`) | ~25 solves, seconds each | converged density; seed jitter; `ribbon_fill_stiffness_scale` against a reference (**OPEN: which reference**) |
+| **B. Structure only (no fluid): convergence + calibration** | density ×1 → ×1024 in factors of 4 (h halves each step); 3-5 Halton seeds each; static load | port the wing's fluid-free static solver (`cases/NACA0020_Wing/verify_structure.py`) | ~25 solves, seconds each | converged density; seed jitter; `ribbon_fill_stiffness_scale` against the strip test (§7: side wall + shortest ray, plane strain) |
 | **C. Grid ladder: stability + grid convergence (merged)** | `Nx` ∈ {32, 64, 128} × `mu` ∈ {1, 3, 10, (30)} × water, at the stage-B density with h/dx fixed | runs long enough for the tip measures (**OPEN: number of cycles**, default 3 after the ramp ≈ 7-8 s at 0.5 Hz); dt from stage C0 | ~9-12, one or two batches of 8; Nx = 128 runs ~1-1.5 h each (estimate) | per (`Nx`, `mu`): stable or not (fluid energy growth rate), tip trajectory. Then: the `mu` closest to water that is stable at an affordable `Nx`, and the convergence order + error bar (GCI, 3 grids) of the tip trajectory at that `mu` |
 | C0 (before C) | **critical dt** per `Nx` at the stage-B density (and one denser) at the new regime | bisection on a dt ladder whose 1/dt are multiples of `print_dump` (e.g. 4e-4, 3.125e-4, 2.5e-4, 2e-4, 1.25e-4, 1e-4); pass = no NaN within 1 s | ~3 per combination | dt_crit; production runs use a fixed fraction (**OPEN**, default 0.7) |
 | **D. Mesh-noise error bar** | 3-5 Halton seeds at the chosen setting | — | 3-5 | spread of the tip measures; a refinement level only counts as converged if its change exceeds this spread |
@@ -57,6 +57,11 @@ one parameter. The free one is the mesh spacing relative to the grid cell (h/dx)
 | **F. Physics** | `FREQUENCY` and `AMPLITUDE` one at a time around the baseline (~5 levels each), then a ~4×4 grid over the interesting region; possibly `E_material` (0.45 vs 0.74 MPa, NOTES §4 issue 1) | at the settings from B-E | ~10 + ~16 | the study (**OPEN: ranges, levels, whether E is included**) |
 
 ### Stage A: tooling to build first
+
+**Status (2026-10-18): all five built, not yet run on the cluster.** Files:
+`sweeps.py` (2, 3), `postprocess.py` (1), `halton_seed` in
+`common/mesh_utils.py` / `FinRay_Geom.py` (4), `verify_structure.py` (5).
+NOTES.md §2 describes them.
 
 1. **Post-processing → `run_info.json`**: tip trajectory per cycle after the ramp (amplitude, phase lag relative to the actuation, peak-to-peak), the growth rate of grid-scale fluid kinetic energy (3×3 box-filter residual; the scan used for NOTES §4 issue 2), time of first NaN. Add these as index columns. A post-processing step that can be re-run on existing runs without re-simulating.
 2. **General sweep definitions**: `make_sweep()` currently varies only density × stiffness scale (hard-coded lists). Each stage needs its own sweep (any `case_params` key, lists of values or a small grid), selectable when submitting, so a stage can be re-run unchanged after editing the regime.
@@ -79,22 +84,30 @@ convergence order and the grid convergence index (GCI, Roache) on the tip measur
 
 ## 6. Open decisions (ask the user)
 
+Still open (decided items are in §7):
+
 | # | decision | default suggestion |
 |---|---|---|
-| O1 | tolerance, and which tip measures (amplitude, phase lag, whole-trajectory RMS) | 2% on amplitude and phase |
-| O2 | stiffness reference for stage B: Timoshenko on a single ribbon strip (as the wing's strip test), or a finite-element model of the whole fin | strip test first |
-| O3 | `E_material` for the study: 0.74 MPa (no known source) or 0.45 MPa (UCL database, Dragon Skin 30) | 0.45 MPa |
+| O1 | which tip measure is judged (amplitude, phase lag, whole-trajectory RMS), and the tolerance. Needed before stage C | 2% on amplitude and phase |
+| O3 | `E_material` for the study: 0.74 MPa (no known source) or 0.45 MPa (UCL database, Dragon Skin 30). Needed before C0 (it changes the stable dt) | 0.45 MPa |
 | O4 | `mu` levels in stage C | 1, 3, 10 × water (30 × only if needed) |
-| O5 | run length: cycles after the ramp | 3 |
-| O6 | number of Halton seeds | 3 (5 if the spread is close to the tolerance) |
+| O6 | number of Halton seeds (stages B and D) | 3 (5 if the spread is close to the tolerance) |
 | O7 | fraction of dt_crit for production runs | 0.7 |
-| O8 | baseline amplitude (2.5 or 3 cm) and the physics ranges/levels for stage F | 2.75 cm; f 0.25-1 Hz, A 1.5-3.5 cm, 5 levels |
-| O9 | sweep-definition format for stage A (Python functions in `run_case.py`, or a config file per stage) | — |
+| O8 | stage F ranges and levels (the baseline is decided) | f 0.25-1 Hz, A 1.5-3.5 cm, 5 levels |
 
 ## 7. Decisions log
 
-Record each decision as it is made (date, decision, reason).
+Each decision with a plain explanation, for readers new to simulation.
 
-| date | # | decision | reason |
+| date | # | decision | what it means, and why |
 |---|---|---|---|
 | 2026-10-18 | 1-5 | see §2 | planning discussion |
+| 2026-10-18 | O9 | **Sweeps are Python functions** in `sweeps.py`, one per sweep, chosen by name (`run_case.py --sweep NAME`, `submit_sweep.sh <folder> NAME`). | A "sweep" is a batch of runs that differ in a few settings. Code (rather than a data file) makes linked settings easy, e.g. a smaller time step for each finer grid. |
+| 2026-10-18 | O5 | **Run length = 1 start-up cycle + 3 measured cycles**: `Tfinal` = 4 / frequency (8 s at 0.5 Hz), worked out automatically unless a sweep sets `Tfinal` itself. | One cycle = both actuators push and return. The first cycle is thrown away because the fin and the water start from rest (and the actuator stiffness ramps in), so it isn't yet repeating. 3 cycles show whether the motion repeats. |
+| 2026-10-18 | O1 (part) | **The "tip" is the outer tip vertex**: the sharp outer corner of the fin's outline. All candidate measures are computed (§4, stage A item 1); which one is judged, and the tolerance, are still open. | The same physical point exists in every mesh, whatever the density or random seed, so runs can be compared directly. |
+| 2026-10-18 | O8 (part) | **Baseline regime: 0.5 Hz, 3 cm** (`case_params.json`). | The real actuator's frequency, and the upper end of its 2.5-3 cm stroke. |
+| 2026-10-18 | O2 | **Stiffness reference: the strip test.** A straight piece of wall (3.96 mm thick) is meshed exactly like the fin, clamped at one end and pushed at the other, without fluid (`verify_structure.py`). Its bending is compared with Timoshenko beam theory (the textbook formula, including shear). The ratio gives `ribbon_fill_stiffness_scale`. A whole-fin finite-element reference was not chosen (for now). | The spring mesh is about 3× too soft at scale 1 (NOTES §4 issue 1), so it must be calibrated against something known. A strip has an exact textbook answer; the wing case used the same method. |
+| 2026-10-18 | B setup | **Two strips: the side wall (138.4 mm) and the shortest ray (16.9 mm)**, both centreline lengths. | Long strips mostly bend; short, stubby ones also shear (about 6% of the deflection here). If both give the same scale, one number fits the whole fin; if not, we learn by how much they differ. |
+| 2026-10-18 | B setup | **Plane strain, ν = 0.499**: the reference stiffness is E/(1-ν²) ≈ 1.33 E. | The 2D model treats the fin as infinitely deep. A 27 mm deep, 4 mm thick wall bends like a plate: it can't contract sideways, which makes it stiffer than a thin beam ("plane stress"). ν (Poisson's ratio) = 0.499 is silicone's. |
+| 2026-10-18 | base | **Base numerics in `case_params.json`: `Nx` 32, ×8, dt 5e-4** (placeholders). | `Nx` = grid cells per side, ×8 = mesh density, dt = time step. Each stage's sweep sets these explicitly; the base only serves the `base`/`smoke` test sweeps, so it is cheap and known stable (old regime). The previous base (`Nx` 64, ×254) went NaN at this dt. |
+| 2026-10-18 | workflow | **The user submits cluster jobs.** Claude prepares the code and sweeps and hands over an ordered submission plan. | Keeps control of what reaches the shared cluster with the user. |

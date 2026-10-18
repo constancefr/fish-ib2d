@@ -1,12 +1,13 @@
 #!/bin/bash
-# One Slurm array task = one case of run_case.py's make_sweep().
+# One Slurm array task = one case of a sweep in sweeps.py ($SWEEP_DEF).
 # Don't sbatch this directly -- use submit_sweep.sh, which snapshots the code,
-# sizes the array and sets SWEEP_DIR.
+# sizes the array and sets SWEEP_DIR and SWEEP_DEF.
 #
 # Each task:
 #   1. copies the sweep's code snapshot to the compute node's local /disk/scratch
-#   2. runs `python run_case.py --case $SLURM_ARRAY_TASK_ID` there, so all the
-#      .vtk output is written to local disk, not the shared filesystem
+#   2. runs `python run_case.py --sweep $SWEEP_DEF --case $SLURM_ARRAY_TASK_ID`
+#      there, so all the .vtk output is written to local disk, not the shared
+#      filesystem (run_case.py also post-processes the run there)
 #   3. copies the case's run folder back to $SWEEP_DIR/results/ and deletes the
 #      scratch copy -- also on failure or timeout (run_case.py records a
 #      stopped run as interrupted), so partial output and scratch cleanup are
@@ -22,6 +23,7 @@
 set -euo pipefail
 
 : "${SWEEP_DIR:?SWEEP_DIR not set -- submit with submit_sweep.sh}"
+: "${SWEEP_DEF:?SWEEP_DEF not set -- submit with submit_sweep.sh}"
 CONDA_ENV="${CONDA_ENV:-ib2d}"
 TASK="${SLURM_ARRAY_TASK_ID}"
 WORK="/disk/scratch/${USER}/finray_${SLURM_ARRAY_JOB_ID}_${TASK}"
@@ -69,6 +71,6 @@ export MPLBACKEND=Agg
 
 cd "${CASE_DIR}"
 # Run in the background and wait, so the TERM trap fires straight away on timeout
-python run_case.py --case "${TASK}" &
+python run_case.py --sweep "${SWEEP_DEF}" --case "${TASK}" &
 PY_PID=$!
 wait "${PY_PID}"
