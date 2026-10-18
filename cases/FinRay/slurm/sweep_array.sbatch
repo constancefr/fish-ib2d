@@ -5,11 +5,12 @@
 #
 # Each task:
 #   1. copies the sweep's code snapshot to the compute node's local /disk/scratch
-#   2. runs `python run_case.py --index $SLURM_ARRAY_TASK_ID` there, so all the
+#   2. runs `python run_case.py --case $SLURM_ARRAY_TASK_ID` there, so all the
 #      .vtk output is written to local disk, not the shared filesystem
-#   3. copies the case's results back to $SWEEP_DIR/results/ and deletes the
-#      scratch copy -- also on failure or timeout, so partial output and scratch
-#      cleanup are never lost
+#   3. copies the case's run folder back to $SWEEP_DIR/results/ and deletes the
+#      scratch copy -- also on failure or timeout (run_case.py records a
+#      stopped run as interrupted), so partial output and scratch cleanup are
+#      never lost
 #
 #SBATCH --partition=ICF-Free
 #SBATCH --cpus-per-task=1          # IB2d is single-threaded
@@ -37,11 +38,12 @@ copy_back() {
         kill "${PY_PID}"
         wait "${PY_PID}"
     fi
-    if [ -d "${CASE_DIR}/results" ]; then
-        rsync -a "${CASE_DIR}/results/" "${SWEEP_DIR}/results/"
-    fi
-    # main2d.py crashed or timed out: run_case.py never archived its output,
-    # so keep whatever frames it wrote for inspection
+    # run_case.py's RESULTS_DIR (results*/ isn't in the snapshot, so this is only this run)
+    for d in "${CASE_DIR}"/results*/; do
+        [ -d "${d}" ] && rsync -a "${d}" "${SWEEP_DIR}/results/"
+    done
+    # run_case.py was killed outright, so never archived its output: keep
+    # whatever frames it wrote for inspection
     if [ -d "${CASE_DIR}/viz_IB2d" ]; then
         local dest="${SWEEP_DIR}/results/_incomplete_task${TASK}"
         mkdir -p "${dest}"
@@ -67,6 +69,6 @@ export MPLBACKEND=Agg
 
 cd "${CASE_DIR}"
 # Run in the background and wait, so the TERM trap fires straight away on timeout
-python run_case.py --index "${TASK}" &
+python run_case.py --case "${TASK}" &
 PY_PID=$!
 wait "${PY_PID}"

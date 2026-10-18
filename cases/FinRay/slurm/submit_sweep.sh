@@ -12,11 +12,13 @@
 #
 # Creates $DATA_ROOT/<sweep_name>/ containing:
 #   snapshot/   frozen copy of the code at submit time; every task runs from this,
-#               so editing the repo after submitting can't change a queued sweep
-#   git.txt     commit, status and diff of the repo at submit time
-#   cases.txt   array task index -> case name
-#   logs/       one Slurm log per task (<jobid>_<task>.out)
-#   results/    one folder per case, filled in as tasks finish
+#               so editing the repo after submitting can't change a queued sweep.
+#               Its code_provenance.json (+ .diff) holds the repo's git state at
+#               submit time, which every run's run_info.json records
+#   cases.txt   array task number -> case name
+#   logs/       one Slurm log per task (<jobid>_<task>.out), plus the index job's
+#   results/    one run folder per case, filled in as tasks finish; index.csv and
+#               index_full.csv are built by a follow-up job once all tasks end
 
 set -euo pipefail
 
@@ -45,16 +47,12 @@ fi
 # Snapshot only what a FinRay run needs (not .git, other cases, or old output)
 mkdir -p "${SWEEP_DIR}/snapshot" "${SWEEP_DIR}/logs" "${SWEEP_DIR}/results"
 (cd "${REPO}" && rsync -aR \
-    --exclude results/ --exclude viz_IB2d/ --exclude hier_IB2d_data/ \
+    --exclude 'results*/' --exclude viz_IB2d/ --exclude hier_IB2d_data/ \
     --exclude __pycache__/ --exclude '*.mp4' \
     cases/FinRay common external/IB2d/pyIB2d/IBM_Blackbox \
     "${SWEEP_DIR}/snapshot/")
 
-{
-    echo "commit: $(git -C "${REPO}" rev-parse HEAD)"
-    echo; echo "status:"; git -C "${REPO}" status --short
-    echo; echo "diff:";   git -C "${REPO}" diff
-} > "${SWEEP_DIR}/git.txt"
+python3 "${REPO}/common/run_records.py" provenance "${SWEEP_DIR}/snapshot" > /dev/null
 
 (cd "${SWEEP_DIR}/snapshot/cases/FinRay" && python3 run_case.py --list) > "${SWEEP_DIR}/cases.txt"
 N_CASES=$(wc -l < "${SWEEP_DIR}/cases.txt")
@@ -66,12 +64,23 @@ fi
 echo "Sweep '${SWEEP_NAME}': ${N_CASES} case(s), at most ${MAX_PARALLEL} at a time"
 cat "${SWEEP_DIR}/cases.txt"
 
-sbatch \
+ARRAY_ID=$(sbatch --parsable \
     --array="0-$((N_CASES - 1))%${MAX_PARALLEL}" \
     --job-name="finray-${SWEEP_NAME}" \
     --output="${SWEEP_DIR}/logs/%A_%a.out" \
     --export=ALL,SWEEP_DIR="${SWEEP_DIR}" \
-    "${SCRIPT_DIR}/sweep_array.sbatch"
+    "${SCRIPT_DIR}/sweep_array.sbatch")
+echo "Submitted array job ${ARRAY_ID}"
+
+# Once every task has ended (finished, failed or timed out): build the sweep's
+# index.csv / index_full.csv from all its run_info.json files
+INDEX_ID=$(sbatch --parsable \
+    --dependency="afterany:${ARRAY_ID}" \
+    --partition=ICF-Free --cpus-per-task=1 --mem=1G --time=00:10:00 \
+    --job-name="finray-${SWEEP_NAME}-index" \
+    --output="${SWEEP_DIR}/logs/index_%j.out" \
+    --wrap="source /opt/conda/etc/profile.d/conda.sh && conda activate ${CONDA_ENV} && cd ${SWEEP_DIR}/snapshot/cases/FinRay && python run_case.py index --all ${SWEEP_DIR}/results")
+echo "Submitted index job ${INDEX_ID} (runs after ${ARRAY_ID})"
 
 echo "Results will appear in ${SWEEP_DIR}/results/"
 echo "Monitor with: squeue -u ${USER}"

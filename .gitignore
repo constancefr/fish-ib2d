@@ -1,6 +1,6 @@
 **/hier_IB2d_data/*
 **/viz_IB2d/*
-**/results/*
+**/results*/*
 
 **/visitlog.py
 slurm-*.out
@@ -15,3 +15,4 @@ brouillon.txt
 .DS_Store
 __pycache__/
 old_results/
+**/mesh_info.json

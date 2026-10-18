@@ -11,10 +11,19 @@ Parameter-sweep driver for the FinRay IB2d example. Configure one or more
      .vertex/.spring/.target/.geo_connect
   4. run `python main2d.py` in a fresh subprocess to run the simulation
   5. move the resulting viz_IB2d/ (and hier_IB2d_data/, if present) into
-     a per-case results folder, alongside a copy of case_params.json and
-     input2d, for provenance
-  6. restore case_params.json and input2d to what they were before the
+     a new folder results/<case_name>_<YYYYmmdd-HHMMSS>/, alongside a copy
+     of case_params.json and input2d
+  6. write that folder's run_info.json (inputs, mesh metrics, timing,
+     outcome, code version), and after the sweep rebuild results/index.csv,
+     one row per run
+  7. restore case_params.json and input2d to what they were before the
      case, so a run leaves the tracked inputs unchanged
+
+Steps 1-7 for one case are common/run_records.run_case() (shared with
+NACA0020_Wing); this file only defines the sweep and the index columns.
+
+To run one case per Slurm array task on the cluster, see slurm/submit_sweep.sh
+(`--list` and `--case N` below).
 
 WHY SUBPROCESSES ---
 update_Target_Point_Positions.py caches its baseline corner positions in
@@ -29,15 +38,47 @@ Run this script from inside the wanted Example folder, e.g. FinRay/
 '''
 
 import json
-import os
-import re
-import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
+import run_records as rr
+
 EXAMPLE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = EXAMPLE_DIR / "results"
+RESULTS_DIR = EXAMPLE_DIR / "results_approach2"
+
+# Columns of results/index.csv, in order: the parameters and results used for
+# analysis. Every other field (unused IB2d features, output switches, package
+# versions, ...) stays in each run's run_info.json and in index_full.csv
+# (`python run_case.py index --all`). Keep parameters here even while a sweep
+# holds them constant: they are what differs between sweeps.
+INDEX_COLUMNS = [
+    # identity
+    "folder", "run_id", "timing.start", "backfilled",
+    "provenance.commit", "provenance.branch", "provenance.uncommitted_changes",
+    # parameters
+    "inputs.geom.ribbon_fill_density_multiplier", "inputs.geom.ribbon_fill_spacing",
+    "inputs.geom.ribbon_fill_stiffness_scale", "inputs.geom.E_material",
+    "inputs.geom.wall_thickness", "inputs.geom.actuation_patch_radius",
+    "inputs.geom.target_stiffness_factor",
+    "inputs.actuation.FREQUENCY", "inputs.actuation.AMPLITUDE",
+    "inputs.actuation.STIFFNESS_RAMP_TIME",
+    "inputs.input2d.mu", "inputs.input2d.rho", "inputs.input2d.dt", "inputs.input2d.Tfinal",
+    "inputs.input2d.Nx", "inputs.input2d.Ny", "inputs.input2d.Lx", "inputs.input2d.Ly",
+    "inputs.input2d.supp",
+    # mesh
+    "mesh.edge_spacing", "mesh.n_edge_points", "mesh.n_fill_points_requested",
+    "mesh.n_fill_points", "mesh.n_points", "mesh.n_springs", "mesh.k_median", "mesh.k_max",
+    "mesh.n_target_points", "mesh.k_Target", "mesh.mesh_area_fraction", "mesh.build_time_s",
+    # timing (backfilled runs only have the approximate wall time)
+    "timing.geometry_wall_time_s", "timing.sim_wall_time_s", "timing.sim_wall_time_s_approx",
+    "timing.sim_time_per_step_ms",
+    # outcome
+    "outcome.status", "outcome.first_nan_time", "outcome.last_output_time",
+    "outcome.interrupted",
+]
 
 
 # --- Base case: loaded from case_params.json on disk ---
@@ -46,13 +87,12 @@ RESULTS_DIR = EXAMPLE_DIR / "results"
 # Keys under "input2d" are patched directly into the input2d text file.
 #
 # BASE_CASE used to be a hardcoded dict here, separate from case_params.json
-# -- which meant hand-editing case_params.json (e.g. to try a value) had no
-# effect on the next sweep: it would silently start over from whatever was
-# baked into this file instead. Loading it from case_params.json means
-# editing that file directly IS how you change the sweep's starting point; a
-# `git diff case_params.json` also then shows exactly what changed. (run_case()
-# restores case_params.json after each case, so that diff only ever shows
-# your own edits, never values left behind by a previous sweep.)
+# -- which meant hand-editing case_params.json (e.g. to try a value, or
+# because that's what a previous run_case() call last wrote) had no effect
+# on the next sweep: it would silently start over from whatever was baked
+# into this file instead. Loading it from case_params.json means editing
+# that file directly IS how you change the sweep's starting point; a
+# `git diff case_params.json` also then shows exactly what changed.
 #
 # NOTE (see NOTES.md): ribbon_fill_stiffness_scale=1.0 (the fill-stiffness
 # formula's literal, uncalibrated value) is known to go NaN by t~3.3-3.6s at
@@ -74,21 +114,21 @@ def make_sweep():
     '''
     2D sweep over ribbon_fill_density_multiplier x ribbon_fill_stiffness_scale,
     everything else held fixed at BASE_CASE. Each case is named
-    "mult<M>_scale<S>" and lands in results/mult<M>_scale<S>/ (see run_case()),
-    so results from different (multiplier, scale) combinations never collide
-    or overwrite each other.
+    "mult<M>_scale<S>" and lands in its own timestamped folder
+    results/mult<M>_scale<S>_<YYYYmmdd-HHMMSS>/ (see run_case()), so no run
+    ever overwrites another.
 
     NOTE (see NOTES.md): scale=1.0 (the fill-stiffness formula's literal,
     uncalibrated value) is known to go NaN by t~3.3-3.6s at
     ribbon_fill_density_multiplier=1.0 -- higher multipliers add more,
     similarly-stiff springs and are expected to be *more* prone to this, not
-    less. run_case() below flags (but does not skip) any case whose final
-    output frame contains NaN, so a blown-up case is obvious without having
-    to manually inspect each results/ folder.
+    less. run_case() below flags (but does not skip) any case that went NaN,
+    and records when (run_info.json, results/index.csv).
     '''
     # multipliers = [0.0, 1.0, 4.0, 8.0]
     # scales = [0.05, 0.1, 0.3, 1.0]
-    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0]
+    # multipliers = [0.0]
+    multipliers = [0.0, 1.0, 8.0, 32.0, 64.0, 128.0, 256.0]
     scales = [1.0]
 
     # ribbon_fill_stiffness_scale now scales EVERY spring (rails included),
@@ -113,110 +153,29 @@ def make_sweep():
     return cases
 
 
-# --- input2d patching
-def patch_input2d(values: dict):
-    '''
-    Rewrites matching `name = value` lines in input2d in place.
-    '''
-    path = EXAMPLE_DIR / "input2d"
-    text = path.read_text()
-
-    for key, val in values.items():
-        # Matches "key = 0.01" or "key= 0.01   % comment"; keeps the comment.
-        pattern = re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)([^\s%]+)", re.MULTILINE)
-        if not pattern.search(text):
-            raise ValueError(
-                f"Couldn't find '{key}' in input2d -- check the exact "
-                f"parameter name/formatting in your input2d file."
-            )
-        text = pattern.sub(lambda m: m.group(1) + repr(val), text)
-
-    path.write_text(text)
-
-
-# --- Run one case
-def run_case(case: dict):
-    print(f"\n=== Running case: {case['case_name']} ===")
-
-    params_path = EXAMPLE_DIR / "case_params.json"
-    input2d_path = EXAMPLE_DIR / "input2d"
-
-    # case_params.json and input2d are tracked inputs: save them now and write
-    # them back once the case is done (even on error or Ctrl+C), so a run
-    # leaves no git diff and the next sweep's BASE_CASE isn't whatever the
-    # last case of this one happened to write.
-    originals = {p: p.read_text() for p in (params_path, input2d_path)}
-    try:
-        # a) write case_params.json (read by FinRay_Geom.py and
-        #    update_Target_Point_Positions.py)
-        params_path.write_text(json.dumps(case, indent=2))
-
-        # b) patch input2d
-        patch_input2d(case["input2d"])
-
-        # c) regenerate geometry/input files
-        env = dict(os.environ, MPLBACKEND="Agg") # Agg backend so that plt.show() is a no-op and doesn't block
-        subprocess.run([sys.executable, "FinRay_Geom.py"], cwd=EXAMPLE_DIR, env=env, check=True)
-
-        # d) run the simulation (fresh subprocess)
-        subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR, check=True)
-
-        # e) archive results
-        case_dir = RESULTS_DIR / case["case_name"]
-        case_dir.mkdir(parents=True, exist_ok=True)
-        for folder in ("viz_IB2d", "hier_IB2d_data"):
-            src = EXAMPLE_DIR / folder
-            if src.exists():
-                dest = case_dir / folder
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.move(str(src), str(dest))
-        shutil.copy(params_path, case_dir / "case_params.json")
-        shutil.copy(input2d_path, case_dir / "input2d")
-    finally:
-        for path, text in originals.items():
-            path.write_text(text)
-
-    if _final_frame_has_nan(case_dir):
-        print(f"=== WARNING: {case['case_name']} diverged (NaN in its final "
-              f"output frame) -- results in {case_dir} are not usable ===")
-    else:
-        print(f"=== Done: results in {case_dir} ===")
-    return case_dir
-
-
-def _final_frame_has_nan(case_dir):
-    '''
-    Cheap divergence check: does the *last* lagPtsConnect.*.vtk frame
-    contain "nan"? A spring-force divide-by-zero (two points colliding)
-    poisons position/velocity data from that point on but does not raise an
-    exception or a nonzero exit code, so a diverged run otherwise looks
-    identical to a healthy one until you open the output by hand -- see
-    NOTES.md for how this was first found (ribbon_fill_stiffness_scale=1.0
-    going NaN partway through a run).
-    '''
-    frames = sorted((case_dir / "viz_IB2d").glob("lagPtsConnect.*.vtk"))
-    if not frames:
-        return False
-    return "nan" in frames[-1].read_text().lower()
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
 
 
 def main():
     '''
-    No arguments: run every case in make_sweep() one after another (local use).
-    --list:       print "<index> <case_name>" for each case and exit, without
+    No arguments: run every case in make_sweep() one after another, then
+                  rebuild the index (local use).
+    --list:       print "<N> <case_name>" for each case and exit, without
                   running anything -- slurm/submit_sweep.sh uses this to size
                   the job array.
-    --index N:    run only case N of make_sweep() (0-based) -- one Slurm array
-                  task per case, see slurm/sweep_array.sbatch.
+    --case N:     run only case N of make_sweep() (0-based), without rebuilding
+                  the index -- one Slurm array task per case, see
+                  slurm/sweep_array.sbatch; submit_sweep.sh queues a follow-up
+                  job that builds the sweep's index once every case is done.
     '''
     import argparse
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--list", action="store_true",
-                       help="print the index and name of each case, then exit")
-    group.add_argument("--index", type=int,
-                       help="run only case INDEX of make_sweep() (0-based)")
+                       help="print the number and name of each case, then exit")
+    group.add_argument("--case", type=int, metavar="N",
+                       help="run only case N of make_sweep() (0-based)")
     args = parser.parse_args()
 
     cases = make_sweep()
@@ -226,22 +185,38 @@ def main():
         for i, case in enumerate(cases):
             print(i, case["case_name"])
         return
-    if args.index is not None:
-        if not 0 <= args.index < len(cases):
-            sys.exit(f"--index {args.index} out of range: the sweep has "
-                     f"{len(cases)} case(s), indices 0-{len(cases) - 1}")
-        cases = [cases[args.index]]
+    if args.case is not None:
+        if not 0 <= args.case < len(cases):
+            sys.exit(f"--case {args.case} out of range: the sweep has "
+                     f"{len(cases)} case(s), numbered 0-{len(cases) - 1}")
+        cases = [cases[args.case]]
 
-    for case in cases:
-        case_dir = run_case(case)
+    signal.signal(signal.SIGTERM, _interrupt)  # an IDE's stop button (or Slurm): treat like Ctrl+C
+    try:
+        for case in cases:
+            case_dir = rr.run_case(case, EXAMPLE_DIR, RESULTS_DIR, "FinRay_Geom.py")
 
-        # Optional: chain straight into VisIt for a movie per case.
-        # movie_path = case_dir / f"{case['case_name']}.mp4"
-        # subprocess.run([
-        #     "visit", "-cli", "-nowin", "-s", str(EXAMPLE_DIR / "make_movie.py"),
-        #     "--", str(case_dir), str(movie_path),
-        # ], check=True)
+            # Optional: chain straight into VisIt for a movie per case.
+            # movie_path = case_dir / f"{case['case_name']}.mp4"
+            # subprocess.run([
+            #     "visit", "-cli", "-nowin", "-s", str(EXAMPLE_DIR / "make_movie.py"),
+            #     "--", str(case_dir), str(movie_path),
+            # ], check=True)
+    finally:
+        # rebuilt even if a case crashed, so finished runs are always listed
+        # (not per array task: each would hold only its own run)
+        if args.case is None:
+            print(f"\nIndex: {rr.write_index(RESULTS_DIR, INDEX_COLUMNS)}")
 
 
 if __name__ == "__main__":
-    main()
+    # `python run_case.py index [--all] [DIR ...]` only rebuilds index.csv
+    # (and index_full.csv with --all) for DIR (default RESULTS_DIR)
+    if sys.argv[1:2] == ["index"]:
+        dirs = [a for a in sys.argv[2:] if a != "--all"] or [RESULTS_DIR]
+        for d in dirs:
+            print("wrote", rr.write_index(d, INDEX_COLUMNS))
+            if "--all" in sys.argv:
+                print("wrote", rr.write_index(d))
+    else:
+        main()
