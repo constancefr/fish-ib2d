@@ -23,7 +23,7 @@
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'   # the header comment
     exit 1
 fi
 SWEEP_NAME="$1"
