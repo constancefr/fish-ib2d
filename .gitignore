@@ -11,3 +11,6 @@ brouillon.txt
 __pycache__/
 old_results/
 **/mesh_info.json
+
+# replication kit: run inputs mirror the results layout, keep them tracked
+!replication/runs/**/results*/*
