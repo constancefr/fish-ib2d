@@ -13,6 +13,8 @@ Parameter-sweep driver for the FinRay IB2d example. Configure one or more
   5. move the resulting viz_IB2d/ (and hier_IB2d_data/, if present) into
      a per-case results folder, alongside a copy of case_params.json and
      input2d, for provenance
+  6. restore case_params.json and input2d to what they were before the
+     case, so a run leaves the tracked inputs unchanged
 
 WHY SUBPROCESSES ---
 update_Target_Point_Positions.py caches its baseline corner positions in
@@ -44,12 +46,13 @@ RESULTS_DIR = EXAMPLE_DIR / "results"
 # Keys under "input2d" are patched directly into the input2d text file.
 #
 # BASE_CASE used to be a hardcoded dict here, separate from case_params.json
-# -- which meant hand-editing case_params.json (e.g. to try a value, or
-# because that's what a previous run_case() call last wrote) had no effect
-# on the next sweep: it would silently start over from whatever was baked
-# into this file instead. Loading it from case_params.json means editing
-# that file directly IS how you change the sweep's starting point; a
-# `git diff case_params.json` also then shows exactly what changed.
+# -- which meant hand-editing case_params.json (e.g. to try a value) had no
+# effect on the next sweep: it would silently start over from whatever was
+# baked into this file instead. Loading it from case_params.json means
+# editing that file directly IS how you change the sweep's starting point; a
+# `git diff case_params.json` also then shows exactly what changed. (run_case()
+# restores case_params.json after each case, so that diff only ever shows
+# your own edits, never values left behind by a previous sweep.)
 #
 # NOTE (see NOTES.md): ribbon_fill_stiffness_scale=1.0 (the fill-stiffness
 # formula's literal, uncalibrated value) is known to go NaN by t~3.3-3.6s at
@@ -135,33 +138,44 @@ def patch_input2d(values: dict):
 def run_case(case: dict):
     print(f"\n=== Running case: {case['case_name']} ===")
 
-    # a) write case_params.json (read by FinRay_Geom.py and
-    #    update_Target_Point_Positions.py)
     params_path = EXAMPLE_DIR / "case_params.json"
-    params_path.write_text(json.dumps(case, indent=2))
+    input2d_path = EXAMPLE_DIR / "input2d"
 
-    # b) patch input2d
-    patch_input2d(case["input2d"])
+    # case_params.json and input2d are tracked inputs: save them now and write
+    # them back once the case is done (even on error or Ctrl+C), so a run
+    # leaves no git diff and the next sweep's BASE_CASE isn't whatever the
+    # last case of this one happened to write.
+    originals = {p: p.read_text() for p in (params_path, input2d_path)}
+    try:
+        # a) write case_params.json (read by FinRay_Geom.py and
+        #    update_Target_Point_Positions.py)
+        params_path.write_text(json.dumps(case, indent=2))
 
-    # c) regenerate geometry/input files
-    env = dict(os.environ, MPLBACKEND="Agg") # Agg backend so that plt.show() is a no-op and doesn't block
-    subprocess.run([sys.executable, "FinRay_Geom.py"], cwd=EXAMPLE_DIR, env=env, check=True)
+        # b) patch input2d
+        patch_input2d(case["input2d"])
 
-    # d) run the simulation (fresh subprocess)
-    subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR, check=True)
+        # c) regenerate geometry/input files
+        env = dict(os.environ, MPLBACKEND="Agg") # Agg backend so that plt.show() is a no-op and doesn't block
+        subprocess.run([sys.executable, "FinRay_Geom.py"], cwd=EXAMPLE_DIR, env=env, check=True)
 
-    # e) archive results
-    case_dir = RESULTS_DIR / case["case_name"]
-    case_dir.mkdir(parents=True, exist_ok=True)
-    for folder in ("viz_IB2d", "hier_IB2d_data"):
-        src = EXAMPLE_DIR / folder
-        if src.exists():
-            dest = case_dir / folder
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.move(str(src), str(dest))
-    shutil.copy(params_path, case_dir / "case_params.json")
-    shutil.copy(EXAMPLE_DIR / "input2d", case_dir / "input2d")
+        # d) run the simulation (fresh subprocess)
+        subprocess.run([sys.executable, "main2d.py"], cwd=EXAMPLE_DIR, check=True)
+
+        # e) archive results
+        case_dir = RESULTS_DIR / case["case_name"]
+        case_dir.mkdir(parents=True, exist_ok=True)
+        for folder in ("viz_IB2d", "hier_IB2d_data"):
+            src = EXAMPLE_DIR / folder
+            if src.exists():
+                dest = case_dir / folder
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.move(str(src), str(dest))
+        shutil.copy(params_path, case_dir / "case_params.json")
+        shutil.copy(input2d_path, case_dir / "input2d")
+    finally:
+        for path, text in originals.items():
+            path.write_text(text)
 
     if _final_frame_has_nan(case_dir):
         print(f"=== WARNING: {case['case_name']} diverged (NaN in its final "
