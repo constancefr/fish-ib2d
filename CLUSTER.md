@@ -29,8 +29,8 @@ Every compute node is a GPU machine, and IB2d uses **1 CPU core and no GPU**. So
 
 | Location | What it is | What goes there |
 |---|---|---|
-| `~/fish-ib2d/` | The git repo, on the shared (Lustre) filesystem | Code only |
-| `~/sim_data/fish-ib2d/FinRay/<sweep>/` | Shared filesystem, outside the repo | Cluster sweep results (snapshot, logs, run folders) |
+| `~/finray_fsi/fish-ib2d/` | The git repo, on the shared (Lustre) filesystem | Code only |
+| `~/finray_fsi/sim_data/fish-ib2d/FinRay/<sweep>/` | Shared filesystem, outside the repo | Cluster sweep results (snapshot, logs, run folders) |
 | `/disk/scratch/$USER/...` **on a compute node** | Fast local disk inside that node; cleared from time to time | Temporary output while a job runs. The job scripts handle it. |
 | `cases/FinRay/results_approach2/` | In the repo, ignored by git | Runs started by hand with `run_case.py` (e.g. tests) |
 
@@ -44,30 +44,30 @@ Every compute node is a GPU machine, and IB2d uses **1 CPU core and no GPU**. So
 All of this already exists. Redo it only on a fresh account.
 
 ```bash
-git clone --recurse-submodules git@github.com:constancefr/fish-ib2d.git ~/fish-ib2d
-#   (already cloned? fetch the solver with: git -C ~/fish-ib2d submodule update --init)
+git clone --recurse-submodules git@github.com:constancefr/fish-ib2d.git ~/finray_fsi/fish-ib2d
+#   (already cloned? fetch the solver with: git -C ~/finray_fsi/fish-ib2d submodule update --init)
 conda create -n ib2d python=3.11 -y
 conda activate ib2d
-pip install -r ~/fish-ib2d/requirements.txt     # includes meshpy
+pip install -r ~/finray_fsi/fish-ib2d/requirements.txt     # includes meshpy
 ```
 
 - **Conda environment:** `ib2d` lives in `~/.conda/envs/ib2d`, so compute nodes can use it too. In job scripts, activate it with `source /opt/conda/etc/profile.d/conda.sh && conda activate ib2d`.
 - **GitHub:** pushes go over SSH, using the key `~/.ssh/id_ed25519` (registered on the GitHub account). The remote is `git@github.com:constancefr/fish-ib2d.git`.
-- **VS Code (on the Mac):** connect with Remote-SSH to host `icf`, open the folder `~/fish-ib2d`, and select the `ib2d` interpreter.
+- **VS Code (on the Mac):** connect with Remote-SSH to host `icf`, open the project folder `~/finray_fsi`, and select the `ib2d` interpreter.
 - **Not installed:** VisIt (see [§6](#6-movies-and-analysis)).
 
 ## 4. Running a FinRay sweep (the normal way)
 
-The scripts are in `cases/FinRay/slurm/`. Each case of a sweep (a function in `cases/FinRay/sweeps.py`) becomes one task of a Slurm job array. Each task runs on a compute node, in a private copy of the code on that node's `/disk/scratch`. When it ends, the task copies its run folder back to `~/sim_data`.
+The scripts are in `cases/FinRay/slurm/`. Each case of a sweep (a function in `cases/FinRay/sweeps.py`) becomes one task of a Slurm job array. Each task runs on a compute node, in a private copy of the code on that node's `/disk/scratch`. When it ends, the task copies its run folder back to `~/finray_fsi/sim_data`.
 
 ### 4.1 Set up the sweep
 
-1. Make sure the repo is on the code you want: `cd ~/fish-ib2d && git status && git log --oneline -1`.
+1. Make sure the repo is on the code you want: `cd ~/finray_fsi/fish-ib2d && git status && git log --oneline -1`.
 2. Set the base parameters in `cases/FinRay/case_params.json`: the regime (`actuation.FREQUENCY`, `AMPLITUDE`), the run length (`run_length`; `input2d.Tfinal: null` means Tfinal = cycles / frequency), and `input2d` values such as `dt`, which `run_case.py` copies into `input2d`.
 3. Pick the sweep, or add one, in `cases/FinRay/sweeps.py`: one function per sweep, named by what it is for (e.g. `stageC0`). Existing: `base` (the base case alone), `smoke` (the base case for 0.05 s), `density`.
 4. Check the list of cases without running anything:
    ```bash
-   cd ~/fish-ib2d/cases/FinRay && python run_case.py --sweep <sweep_def> --list
+   cd ~/finray_fsi/fish-ib2d/cases/FinRay && python run_case.py --sweep <sweep_def> --list
    ```
 
 Uncommitted changes are fine. They're recorded with every run (see 4.4). Still, prefer committing the code you run.
@@ -75,19 +75,19 @@ Uncommitted changes are fine. They're recorded with every run (see 4.4). Still, 
 ### 4.2 Submit (on the head node)
 
 ```bash
-~/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <sweep_name> <sweep_def>
+~/finray_fsi/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <sweep_name> <sweep_def>
 ```
 
 - **`<sweep_def>`** is the function in `sweeps.py` (step 3). It's saved as `sweep_def.txt` in the sweep folder and in every run's `run_info.json` (`inputs.sweep`).
-- **`<sweep_name>` must be new.** The script refuses a name that already exists in `~/sim_data/fish-ib2d/FinRay/`, so earlier results are never overwritten. Use a name that says what the sweep is, e.g. `mult0-256_Nx32_T15`.
+- **`<sweep_name>` must be new.** The script refuses a name that already exists in `~/finray_fsi/sim_data/fish-ib2d/FinRay/`, so earlier results are never overwritten. Use a name that says what the sweep is, e.g. `mult0-256_Nx32_T15`.
 - **It records the code at submit time.** It copies the code to `<sweep>/snapshot/` and saves the git state there. Editing the repo afterwards doesn't affect the sweep, even if it's still queued.
 - **It submits two jobs.**
   - The **array job**: one task per case, at most 8 running at once.
   - The **index job**: it waits until every task has ended, finished or not, then builds `index.csv` and `index_full.csv`.
-- **Optional settings** go before the command, e.g. `MAX_PARALLEL=4 ~/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <name> <sweep_def>`:
+- **Optional settings** go before the command, e.g. `MAX_PARALLEL=4 ~/finray_fsi/fish-ib2d/cases/FinRay/slurm/submit_sweep.sh <name> <sweep_def>`:
   - `MAX_PARALLEL`: the number of cases running at once (default 8);
   - `CONDA_ENV`: the conda environment the jobs use (default `ib2d`);
-  - `DATA_ROOT`: where sweeps are stored (default `~/sim_data/fish-ib2d/FinRay`).
+  - `DATA_ROOT`: where sweeps are stored (default `~/finray_fsi/sim_data/fish-ib2d/FinRay`).
 
 **Resources for each task** are set in `sweep_array.sbatch`: `ICF-Free`, 1 CPU, 4 GB of memory, a 2-hour limit. They haven't been measured on this cluster yet. After the first real sweep, check the actual usage with `sacct` (4.3: `Elapsed` = time, `MaxRSS` = peak memory) and set `--mem` and `--time` to about 1.5× that. Smaller requests start sooner.
 
@@ -95,7 +95,7 @@ Uncommitted changes are fine. They're recorded with every run (see 4.4). Still, 
 
 ```bash
 squeue -u $USER                                   # PD = waiting, R = running
-tail -f ~/sim_data/fish-ib2d/FinRay/<sweep>/logs/<jobid>_<task>.out
+tail -f ~/finray_fsi/sim_data/fish-ib2d/FinRay/<sweep>/logs/<jobid>_<task>.out
 sacct -j <jobid> --format=JobID,State,Elapsed,MaxRSS,ReqMem,Timelimit,ExitCode
                                                   # per task: state, time and peak memory used (seff isn't installed)
 scontrol update JobId=<jobid> ArrayTaskThrottle=4 # change how many run at once
@@ -105,7 +105,7 @@ scancel <jobid>                                   # cancel the whole array (or <
 ### 4.4 What you get
 
 ```
-~/sim_data/fish-ib2d/FinRay/<sweep>/
+~/finray_fsi/sim_data/fish-ib2d/FinRay/<sweep>/
 ├── snapshot/                     code as submitted (+ code_provenance.json / .diff: git state at submit)
 ├── cases.txt                     array task number -> case name
 ├── sweep_def.txt                 the sweeps.py function used
@@ -126,7 +126,7 @@ scancel <jobid>                                   # cancel the whole array (or <
 
 To rebuild the index by hand, e.g. after moving run folders around:
 ```bash
-cd ~/fish-ib2d/cases/FinRay && python run_case.py index --all ~/sim_data/fish-ib2d/FinRay/<sweep>/results
+cd ~/finray_fsi/fish-ib2d/cases/FinRay && python run_case.py index --all ~/finray_fsi/sim_data/fish-ib2d/FinRay/<sweep>/results
 ```
 
 ### 4.5 Test before a big sweep
@@ -143,7 +143,7 @@ For a very quick check that the code runs at all, use the `smoke` sweep (0.05 s)
 ```bash
 srun -p Interactive --cpus-per-task=1 --mem=4G --time=00:30:00 --pty bash
 source /opt/conda/etc/profile.d/conda.sh && conda activate ib2d
-cd ~/fish-ib2d/cases/FinRay
+cd ~/finray_fsi/fish-ib2d/cases/FinRay
 python run_case.py --sweep smoke --case 0   # one case; without --case: the whole sweep
 exit                                 # give the node back as soon as you're done
 ```
@@ -155,9 +155,9 @@ Runs started this way write to `cases/FinRay/results_approach2/` in the repo, on
 - **Movies on the Mac:** VisIt isn't installed on the cluster, so pack each case into one file and copy it to your Mac, then run `make_movie.py` there as the README describes.
   ```bash
   # on the cluster
-  cd ~/sim_data/fish-ib2d/FinRay/<sweep>/results && tar czf <run_folder>.tgz <run_folder>
+  cd ~/finray_fsi/sim_data/fish-ib2d/FinRay/<sweep>/results && tar czf <run_folder>.tgz <run_folder>
   # on the Mac
-  scp icf:~/sim_data/fish-ib2d/FinRay/<sweep>/results/<run_folder>.tgz .
+  scp icf:~/finray_fsi/sim_data/fish-ib2d/FinRay/<sweep>/results/<run_folder>.tgz .
   ```
 - **Movies on the cluster (optional):** unpack VisIt's Linux build in your home directory (e.g. `~/opt/visit`; no admin rights needed) and add it to `PATH`. Then, on a compute node: `visit -quiet -cli -nowin -s make_movie.py -- <run_folder> out.mp4`. `ffmpeg` is installed on the compute nodes.
 
@@ -179,9 +179,9 @@ Runs started this way write to `cases/FinRay/results_approach2/` in the repo, on
 ## Rules for coding agents
 
 1. **Never run simulations, geometry builds or tests that use real CPU on the head node.** Run them with `sbatch`, or with `srun -p Interactive` for short checks. Light commands are fine on the head node: `git`, editing, `--list`, `submit_sweep.sh`, reading logs.
-2. **Don't submit jobs yourself (the user's preference): hand the user an ordered plan** of what to submit (exact commands, what each job runs, which results to check). Ask before cancelling jobs, and before deleting or moving anything in `~/sim_data`. Use `sbatch --test-only` to check a job without queuing it.
+2. **Don't submit jobs yourself (the user's preference): hand the user an ordered plan** of what to submit (exact commands, what each job runs, which results to check). Ask before cancelling jobs, and before deleting or moving anything in `~/finray_fsi/sim_data`. Use `sbatch --test-only` to check a job without queuing it.
 3. **Always set `--partition=ICF-Free`**, 1 CPU and no GPU for IB2d. Keep at most about 8 tasks running at once unless the user agrees otherwise.
-4. **Don't write large output into the repo.** Real sweeps go through `submit_sweep.sh` to `~/sim_data`.
+4. **Don't write large output into the repo.** Real sweeps go through `submit_sweep.sh` to `~/finray_fsi/sim_data`.
 5. **Check before overwriting:** sweep names must be new, and never delete run folders to make space without asking.
 6. **Before committing,** check that `git status` doesn't include generated files or temporary test values in `case_params.json`, `input2d` or `sweeps.py`. Ask before pushing.
 7. **Report outcomes from the files,** not from the exit code alone: `run_info.json` (`outcome.status`, `first_nan_time`), the job log, and `sacct`. A run that diverged still exits normally.

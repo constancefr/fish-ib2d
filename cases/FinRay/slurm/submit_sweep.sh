@@ -12,7 +12,7 @@
 #   MAX_PARALLEL  cases allowed to run at once (default 8). Change a submitted
 #                 array with: scontrol update JobId=<jobid> ArrayTaskThrottle=<N>
 #   CONDA_ENV     conda env the jobs activate (default ib2d)
-#   DATA_ROOT     where sweeps are stored (default ~/sim_data/fish-ib2d/FinRay)
+#   DATA_ROOT     where sweeps are stored (default ~/finray_fsi/sim_data/fish-ib2d/FinRay)
 #
 # Creates $DATA_ROOT/<sweep_name>/ containing:
 #   snapshot/   frozen copy of the code at submit time; every task runs from this,
@@ -36,7 +36,7 @@ export SWEEP_DEF="$2"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-DATA_ROOT="${DATA_ROOT:-${HOME}/sim_data/fish-ib2d/FinRay}"
+DATA_ROOT="${DATA_ROOT:-${HOME}/finray_fsi/sim_data/fish-ib2d/FinRay}"
 SWEEP_DIR="${DATA_ROOT}/${SWEEP_NAME}"
 MAX_PARALLEL="${MAX_PARALLEL:-8}"
 export CONDA_ENV="${CONDA_ENV:-ib2d}"
