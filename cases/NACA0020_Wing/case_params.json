@@ -1,5 +1,5 @@
 {
-  "case_name": "x4_dt2e-4",
+  "case_name": "base",
   "input2d": {
     "mu": 0.030069000000000002,
     "rho": 1000.0,
@@ -10,7 +10,8 @@
     "Lx": 1.2,
     "Ly": 1.2,
     "supp": 4,
-    "print_dump": 100
+    "print_dump": 250,
+    "springs": 0
   },
   "geom": {
     "pitch_axis_world": [
@@ -29,8 +30,9 @@
     ],
     "fill_density_multiplier": 4.0,
     "fill_spacing": null,
-    "stiffness_scale": 4,
-    "target_stiffness_factor": 3.0
+    "stiffness_scale": null,
+    "target_stiffness_factor": 3.0,
+    "spring_force": "hook"
   },
   "flow": {
     "U": 0.2,
@@ -46,6 +48,14 @@
     ],
     "fringe_ramp": 0.05,
     "fringe_rate": 40.0,
-    "mean_rate": 20.0
+    "mean_rate": 20.0,
+    "start_ramp": 0.02
+  },
+  "output": {
+    "field_interval": 0.05
+  },
+  "diagnostics": {
+    "interval": 0.01,
+    "save_every": 1.0
   }
 }

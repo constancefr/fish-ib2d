@@ -7,7 +7,7 @@
 % FLUID PARAMETER VALUES %
 %
 Fluid_Parameters {
-mu = 0.030069000000000002           % Dynamic Viscosity (N*s/m^2) = 30 x water (1.0023e-3), i.e. Re ~ 1300 -- see NOTES.md (Re limit)
+mu = 0.030069000000000002           % Dynamic Viscosity (N*s/m^2); water (the reference) = 1.0023e-3 -- see IMPLEMENTATION_DECISIONS.md (Re)
 rho = 1000.0               % Density (kg/m^3)
 }
 
@@ -38,7 +38,7 @@ supp = 4                % Choose dirac-delta support (KEEP IT EVEN!!!)
 % LAGRANGIAN STRUCTURE MODEL INFORMATION %
 %
 Lag_Structure_Info {
-springs = 1             % 0 (for no) or 1 (for yes)
+springs = 0             % 0 (for no) or 1 (for yes) -- 0: springs computed (vectorised) in the user-force hook, see geom.spring_force
 update_springs = 0      % 0 (for no) or 1 (for yes)
 target_pts = 1          % 0 (for no) or 1 (for yes) -- CLAMPS THE RIGID LEADING-EDGE SEGMENT
 update_target = 0       % 0 (for no) or 1 (for yes)
@@ -61,7 +61,7 @@ damped_springs = 0      % 0 (for no) or 1 (for yes)
 update_damp_springs = 0 % 0 (for no) or 1 (for yes)
 boussinesq = 0          % 0 (for no) or 1 (for yes)  % FOR BOUSSINESQ APPROXIMATION!
 expansion_coeff = 1.0   % expansion coefficient for Boussinesq approx.
-user_force_model = 0    % 0 (for no) or 1 (for yes) -- only for the legacy Wing_Geom_centerline.py (its bending hook)
+user_force_model = 1    % 0 (for no) or 1 (for yes) -- DIAGNOSTICS HOOK (adds no force; wing.user_force = 0); legacy Wing_Geom_centerline.py uses it for bending
 coagulation = 0         % 0 (for no) or 1 (for yes)
 }
 
@@ -82,17 +82,17 @@ c_inf = 1             % saturation limit for concentration, for k_source = 2
 % PRINTING INFORMATION
 %
 Output_Info {
-print_dump = 100         % How often to print (PLOT) to screen
+print_dump = 250         % How often to print (PLOT) to screen
 save_Vorticity = 1      % Save Vorticity Scalar Data to .vtk format
 save_Pressure = 1       % Save Pressure Scalar Data to .vtk format
-save_uVec = 1           % Save u-Vector Data to .vtk format
-save_uMag = 1           % Save uMagnitude Scalar Data to .vtk format
-save_uX = 1             % Save uX Scalar Data to .vtk format
-save_uY = 1             % Save uY Scalar Data to .vtk format
-save_fMag = 1           % Save Force Magnitude Scalar Data to .vtk format
-save_fX = 1             % Save x-Force Component Scalar Data to .vtk format
-save_fY = 1             % Save y-Force Component Scalar Data to .vtk format
-save_hier = 1           % Save Scalar Force Data on Lag. Structure to .vtk format
+save_uVec = 0           % Save u-Vector Data to .vtk format
+save_uMag = 0           % Save uMagnitude Scalar Data to .vtk format
+save_uX = 0             % Save uX Scalar Data to .vtk format
+save_uY = 0             % Save uY Scalar Data to .vtk format
+save_fMag = 0           % Save Force Magnitude Scalar Data to .vtk format
+save_fX = 0             % Save x-Force Component Scalar Data to .vtk format
+save_fY = 0             % Save y-Force Component Scalar Data to .vtk format
+save_hier = 0           % Save Scalar Force Data on Lag. Structure to .vtk format
 plot_Matlab = 0          % Plot in Matlab? (1=YES, 0=NO)
 plot_LagPts = 1          % Plot Lagrangian Points ONLY in Matlab
 plot_Velocity = 1        % Plot Lagrangian Points + VELOCITY FIELD in Matlab

@@ -201,7 +201,7 @@ def build_wing(params=None, Nx=None, Lx=None, **overrides):
     init_q = list(g.get('init_q', [0, 0, 0, 0]))
     mult = g.get('fill_density_multiplier', 1.0)
     fill_spacing = g.get('fill_spacing') or ds        # the json holds null -> ds
-    stiffness_scale = g.get('stiffness_scale', 1.0)
+    stiffness_scale = g.get('stiffness_scale', 1.0)    # None (null): measured for this mesh, see below
     target_factor = g.get('target_stiffness_factor', 15.0)
     px, py = g.get('pitch_axis_world', [0.4, 0.6])
     x_LE = px - g.get('pitch_axis_from_LE', 0.03)
@@ -210,7 +210,9 @@ def build_wing(params=None, Nx=None, Lx=None, **overrides):
     t_start = time.perf_counter()
     pts, triangles, info = build_wing_mesh(fill_spacing, mult, rigid_len)
     xr, yr = pts[:, 0], pts[:, 1]
-    connections, edge_k = mu.tributary_springs(xr, yr, triangles, E, ds, stiffness_scale)
+    measured = stiffness_scale is None   # null: measure it for this very mesh (verify_structure.measure_scale)
+    connections, edge_k = mu.tributary_springs(xr, yr, triangles, E, ds,
+                                               1.0 if measured else stiffness_scale)
 
     # clamp: every point of the rigid block, clamp line included
     target_idx = np.where(xr <= rigid_len + 1e-12)[0]
@@ -222,6 +224,17 @@ def build_wing(params=None, Nx=None, Lx=None, **overrides):
     connections = [c for c in connections if not (c[0] in rigid and c[1] in rigid)]
     edge_k = {(i, j): edge_k[(i, j)] for i, j, _ in connections}
     k_Target = target_factor * mu.max_incident_stiffness(target_idx.tolist(), edge_k)
+    if measured:
+        # the static response is linear in a common factor on every spring and
+        # tether, so measure at scale 1 and multiply
+        import verify_structure
+        stiffness_scale = verify_structure.measure_scale(dict(
+            xr=xr + x_LE, yr=yr + y0,
+            x_LE=x_LE, y0=y0, rigid_len=rigid_len, n_outline=info['n_outline'], ds=ds,
+            connections=connections, edge_k=edge_k, target_idx=target_idx, k_Target=k_Target,
+            triangles=triangles, te_index=info['te_index']), E)
+        edge_k = {key: k * stiffness_scale for key, k in edge_k.items()}
+        k_Target *= stiffness_scale
     bent = bend(pts, init_q, rigid_len)
     build_time = time.perf_counter() - t_start
 
@@ -229,7 +242,8 @@ def build_wing(params=None, Nx=None, Lx=None, **overrides):
                 triangles=triangles, connections=connections, edge_k=edge_k,
                 all_connections=all_connections,
                 target_idx=target_idx, k_Target=k_Target, ds=ds, fill_spacing=fill_spacing,
-                mult=mult, E=E, stiffness_scale=stiffness_scale, rigid_len=rigid_len,
+                mult=mult, E=E, stiffness_scale=stiffness_scale, stiffness_scale_measured=measured,
+                rigid_len=rigid_len, spring_force=g.get('spring_force', 'ib2d'),
                 x_LE=x_LE, y0=y0, build_time=build_time, **info)
 
 
@@ -247,7 +261,8 @@ def mesh_info(w):
         n_fill_points_requested=int(round(w['mult'] * area / w['fill_spacing'] ** 2)),
         n_fill_points=len(w['xr']) - n_edge,
         n_points=len(w['xr']), n_triangles=len(w['triangles']), n_springs=len(w['connections']),
-        stiffness_scale=w['stiffness_scale'], k_median=float(np.median(k)), k_max=float(k.max()),
+        stiffness_scale=w['stiffness_scale'], stiffness_scale_measured=w['stiffness_scale_measured'],
+        k_median=float(np.median(k)), k_max=float(k.max()),
         n_target_points=len(w['target_idx']), n_clamp_points=len(w['clamp_idx']),
         k_Target=w['k_Target'], te_index=w['te_index'],
         wing_area_m2=area, mesh_area_fraction=mesh_area / area,
@@ -282,6 +297,20 @@ def write_files(w, struct_name='wing'):
         for i, j, _ in w['all_connections']:
             f.write('%d %d\n%d %d\n' % (i, j, j, i))
 
+    # user_force_model = 1 runs give_Me_General_User_Defined_Force_Densities.py:
+    # mode 1 = diagnostics + the springs computed there (input2d springs = 0),
+    # mode 0 = diagnostics only (IB2d computes the springs, springs = 1)
+    with open(struct_name + '.user_force', 'w') as f:
+        f.write('1\n%d\n' % (1 if w['spring_force'] == 'hook' else 0))
+
+    # what the hooks and postprocess.py need: the straight rest state (world),
+    # the triangulation and the clamp
+    np.savez(struct_name + '_mesh.npz', xr=w['xr'], yr=w['yr'], x0=w['x'], y0_init=w['y'],
+             triangles=w['triangles'], te_index=w['te_index'], target_idx=w['target_idx'],
+             k_Target=w['k_Target'], ds=w['ds'], x_LE=w['x_LE'], y_axis=w['y0'],
+             rigid_len=w['rigid_len'], chord=CHORD, n_outline=w['n_outline'],
+             clamp_idx=np.asarray(w['clamp_idx']), stiffness_scale=w['stiffness_scale'])
+
 
 def plot_preview(w, path='geometry_preview.png'):
     import matplotlib
@@ -315,6 +344,8 @@ def main():
           % (info['n_points'], info['n_edge_points'], info['n_fill_points'], info['n_springs'],
              info['n_target_points'], info['k_Target'], 100 * info['mesh_area_fraction'],
              info['ds'], info['edge_spacing']))
+    print('stiffness_scale = %.4f (%s)' % (w['stiffness_scale'],
+          'measured for this mesh' if w['stiffness_scale_measured'] else 'set in case_params.json'))
     plot_preview(w)
 
 

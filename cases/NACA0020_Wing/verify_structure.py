@@ -177,6 +177,24 @@ def wing_test(mult, target_factor):
     link and the centreline deflection there (m).'''
     w = WG.build_wing(fill_density_multiplier=mult, stiffness_scale=1.0,
                       target_stiffness_factor=target_factor, init_q=[0, 0, 0, 0])
+    return (w,) + wing_deflection(w)
+
+
+def measure_scale(w, E):
+    '''stiffness_scale for the structure w (built at stiffness_scale 1): the
+    least-squares fit of its centreline deflection to the reference's Ritz
+    solution over 0 < s/L3 <= FIT_UP_TO (test 2 above). Wing_Geom.py calls
+    this when geom.stiffness_scale is null, so every mesh gets its own value.'''
+    s, u1, _ = wing_deflection(w)
+    L3 = WG.CHORD - w['rigid_len']
+    s_ref, _, y_gvs = reference_solutions(E, w['rigid_len'], L3, Q)
+    fit = (s > 0) & (s <= FIT_UP_TO * L3 + 1e-12)
+    return fit_scale(u1[fit], np.interp(s, s_ref, y_gvs)[fit])
+
+
+def wing_deflection(w):
+    '''Static solve of the straight structure w under the uniform load:
+    (s, u1, (ux, uy, fy)).'''
     xp, yp = w['xr'] - w['x_LE'], w['yr'] - w['y0']
     rl = w['rigid_len']
     upper = np.where((np.arange(len(xp)) < w['n_outline']) & (yp >= 0) & (xp > rl))[0]
@@ -186,7 +204,7 @@ def wing_test(mult, target_factor):
     s = np.linspace(0.0, L3, 57)
     u1 = centreline_deflection(xp, yp, w['triangles'], uy, rl + s[:-1], np.zeros(len(s) - 1))
     u1 = np.append(u1, uy[w['te_index']])              # the tip is the TE point itself
-    return w, s, u1, (ux, uy, fy)
+    return s, u1, (ux, uy, fy)
 
 
 def ib2d_residual(w, ux, uy, fy, eps):

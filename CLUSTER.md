@@ -174,7 +174,7 @@ Runs started this way write to `cases/FinRay/results_approach2/` in the repo, on
 - **Single quotes keep `$USER` as literal text:** `'/disk/scratch/$USER'` creates a folder literally named `$USER`. Use double quotes.
 - **Python imports are slow the first time** on the shared filesystem, e.g. 1–2 minutes for numpy, numba or vtk. That doesn't mean the job is stuck.
 - **A leftover `viz_IB2d/` in `cases/FinRay/`**, from a local run that was killed, makes the next `run_case.py` refuse to start. Move that folder into the run's results folder, or delete it.
-- **The wing case has no cluster scripts yet.** `cases/NACA0020_Wing/run_case.py` shares `run_records.run_case()`, but it has no `--list` or `--case` options and no Slurm scripts.
+- **The wing case** has its own `cases/NACA0020_Wing/slurm/submit_sweep.sh` (same as FinRay's, plus `TIME_LIMIT` and `MEM`; data in `~/finray_fsi/sim_data/fish-ib2d/NACA0020_Wing/`). Its runs need about 0.8 GB; Nx 384 runs take ~4 h (set `TIME_LIMIT`). IB2d often *crashes* on divergence instead of writing NaN frames: check `analysis.stable` in `run_info.json`, not the exit code or `outcome.status` alone.
 
 ## Rules for coding agents
 

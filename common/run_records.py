@@ -135,11 +135,13 @@ def provenance(case_dir, diff_path):
 
 def outcome(viz_dir, dt, print_dump, t_final):
     '''
-    How far a run got, from its lagPtsConnect.*.vtk frames (frame k is
+    How far a run got, from its lagPtsConnect.*.vtk (else lagsPts.*.vtk) frames (frame k is
     written at t = k * print_dump * dt). NaN never clears once it appears,
     so the first NaN frame is found by bisection.
     '''
     frames = sorted(Path(viz_dir).glob('lagPtsConnect.*.vtk'))
+    if not frames:      # IB2d writes connection frames only when it computes springs itself
+        frames = sorted(Path(viz_dir).glob('lagsPts.*.vtk'))
     if not frames:
         return dict(status='no output', first_nan_time=None, last_output_time=None, n_frames=0)
 
@@ -374,12 +376,15 @@ def run_case(case, example_dir, results_dir, geom_script, post_scripts=(), copy_
         print(f"=== {status}: results in {case_dir} ===")
     if interrupted:
         raise KeyboardInterrupt  # stop the sweep (the caller still rebuilds the index)
-    if exit_code:
-        raise subprocess.CalledProcessError(exit_code, "main2d.py")
+    # post-process crashed runs too: IB2d often stops with an exception (e.g. an
+    # IndexError on NaN positions) rather than writing NaN frames, and what the
+    # run recorded until then is still worth analysing
     for script in post_scripts:
         r = subprocess.run([sys.executable, script, str(case_dir)], cwd=example_dir, env=env)
         if r.returncode:
             print(f"=== WARNING: {script} failed (exit {r.returncode}) for {run_id} ===")
+    if exit_code:
+        raise subprocess.CalledProcessError(exit_code, "main2d.py")
     return case_dir
 
 if __name__ == '__main__':
